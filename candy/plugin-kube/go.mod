@@ -30,8 +30,8 @@ require (
 	github.com/modern-go/reflect2 v1.0.3-0.20250322232337-35a7c28c31ee // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/oklog/run v1.1.0 // indirect
-	github.com/opencharly/sdk v0.2026234.347
-	github.com/opencharly/spec v0.2026232.520
+	github.com/opencharly/sdk v0.2026241.933
+	github.com/opencharly/spec v0.2026241.931
 	github.com/pelletier/go-toml/v2 v2.2.4 // indirect
 	github.com/protocolbuffers/txtpbfmt v0.0.0-20260217160748-a481f6a22f94 // indirect
 	github.com/spf13/pflag v1.0.10 // indirect
