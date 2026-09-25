@@ -52,6 +52,14 @@ type provider struct{ pb.UnimplementedProviderServer }
 // box`), dispatches the method, and self-evaluates the matchers.
 func (provider) Invoke(ctx context.Context, req *pb.InvokeRequest) (*pb.InvokeReply, error) {
 	if req.GetClass() == "deploy" {
+		// The deploy substrate word rides Reserved (kubernetes | kindcluster).
+		if req.GetReserved() == "kindcluster" {
+			switch req.GetOp() {
+			case sdk.OpPreresolve:
+				return invokeKindclusterPreresolve(ctx, req)
+			}
+			return invokeDeployKindcluster(req)
+		}
 		switch req.GetOp() {
 		case sdk.OpPreresolve:
 			return invokeKubernetesPreresolve(ctx, req)

@@ -53,6 +53,7 @@ func NewMeta() pb.PluginMetaServer {
 		[]sdk.ProvidedCapability{
 			{Class: "verb", Word: "kube", InputDef: "#KubeInput", Primary: "method"},
 			{Class: "deploy", Word: "kubernetes", InputDef: "", Preresolve: true},
+			{Class: "deploy", Word: "kindcluster", InputDef: "", Preresolve: true},
 		},
 		schemaFS)
 }
