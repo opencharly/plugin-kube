@@ -36,7 +36,6 @@ import (
 	"strings"
 
 	"github.com/opencharly/sdk"
-	"github.com/opencharly/sdk/deploykit"
 	"github.com/opencharly/sdk/kit"
 	"github.com/opencharly/sdk/loaderkit"
 	"github.com/opencharly/spec/container"
@@ -45,9 +44,10 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// deployKindclusterVersion is the candy version stamped onto the ledger record
-// (kept in lockstep with charly.yml + the Describe capability version).
-const deployKindclusterVersion = "2026.174.1200"
+// deployKindclusterVersion is the candy version stamped onto the ledger record —
+// the SAME one candy version the kubernetes record uses (this repo ships ONE candy,
+// plugin-kube; R3). `deployKubernetesVersion` is its single home.
+const deployKindclusterVersion = deployKubernetesVersion
 
 // kindDefaultNodeImage is the fallback node image when neither the deploy nor the
 // template pins one. Digest-pinned for reproducibility (kind's own guidance); it
@@ -192,7 +192,11 @@ func invokeKindclusterPreresolve(ctx context.Context, req *pb.InvokeRequest) (*p
 	// deploy:kubernetes' requirement). The cluster-only case (no image) is legal —
 	// the deploy just provisions the cluster.
 	if node != nil && node.Image != "" {
-		imageRef, capsJSON, rerr := resolveKindWorkloadImage(node, p.Name, rt.RunEngine)
+		// Resolve the workload image against the SAME engine the cluster runs on
+		// (not rt.RunEngine) — an operator overriding `engine:` must have its image
+		// resolved from and loaded to the one engine, or a false "not present
+		// locally" / wrong-engine load results.
+		imageRef, capsJSON, rerr := resolveWorkloadImage(node, p.Name, provider)
 		if rerr != nil {
 			return nil, rerr
 		}
@@ -281,40 +285,6 @@ func kindclusterAsKubernetes(kc *spec.Kindcluster) spec.Kubernetes {
 	return kub
 }
 
-// resolveKindWorkloadImage resolves the image ref + capabilities for a kindcluster
-// deploy that runs a workload — the SAME resolution deploy:kubernetes performs
-// (preresolve.go), factored here for the kindcluster leg.
-func resolveKindWorkloadImage(node *spec.Deploy, name, engine string) (imageRef string, capsJSON []byte, err error) {
-	authored := node.Image
-	if authored == "" {
-		authored = name
-	}
-	if node.Version != "" {
-		imageRef = spec.LeafName(authored) + ":" + node.Version
-		if !kit.LocalImageExists(engine, imageRef) {
-			return "", nil, fmt.Errorf("deploy %q: pinned image %q not present in local %s storage", name, imageRef, engine)
-		}
-	} else {
-		resolved, rerr := kit.ResolveLocalImageRef(engine, spec.LeafName(authored))
-		if rerr != nil {
-			return "", nil, fmt.Errorf("deploy %q: resolving image %q: %w", name, authored, rerr)
-		}
-		imageRef = resolved
-	}
-	caps, cerr := deploykit.ExtractMetadata(engine, imageRef)
-	if cerr != nil {
-		return "", nil, fmt.Errorf("deploy %q: extracting capabilities from image %q: %w", name, imageRef, cerr)
-	}
-	if caps == nil {
-		return "", nil, fmt.Errorf("deploy %q: image %q has no ai.opencharly labels (not an opencharly image?)", name, imageRef)
-	}
-	capsJSON, merr := json.Marshal(caps)
-	if merr != nil {
-		return "", nil, fmt.Errorf("deploy %q: marshal capabilities: %w", name, merr)
-	}
-	return imageRef, capsJSON, nil
-}
-
 // renderKindClusterConfig renders the kind Cluster config from the template topology.
 // A single control-plane node is the kind default; explicit nodes (roles + per-node
 // images/port mappings) override it.
@@ -390,7 +360,7 @@ func invokeDeployKindcluster(req *pb.InvokeRequest) (*pb.InvokeReply, error) {
 
 	// Provision the cluster on the operator's engine. Idempotent-friendly: a cluster
 	// that already exists is left running (kind's `create` would fail; so probe first).
-	if !kindClusterExists(kv.ClusterName) {
+	if !kindClusterExists(kv.Provider, kv.ClusterName) {
 		if out, cerr := runKind(kv.Provider, "create", "cluster",
 			"--name", kv.ClusterName,
 			"--config", cfgFile.Name(),
@@ -427,10 +397,11 @@ func invokeDeployKindcluster(req *pb.InvokeRequest) (*pb.InvokeReply, error) {
 	return sdk.BuildDeployReply(reverseOps, "plugin-kube", deployKindclusterVersion)
 }
 
-// kindClusterExists reports whether a kind cluster of this name exists on the
-// engine. kind get clusters is ENGINE-SCOPED, so the provider env is set.
-func kindClusterExists(name string) bool {
-	out, err := runKind("", "get", "clusters")
+// kindClusterExists reports whether a kind cluster of this name exists on the given
+// engine. kind get clusters is ENGINE-SCOPED, so the provider env is set — an
+// autodetected query could report a different engine's clusters.
+func kindClusterExists(provider, name string) bool {
+	out, err := runKind(provider, "get", "clusters")
 	if err != nil {
 		return false
 	}
@@ -484,21 +455,21 @@ func kindVenueWorkloadImage(overlayPath string) string {
 
 // firstContainerImage walks a workload manifest for the first container image.
 func firstContainerImage(doc map[string]any) string {
-	spec, ok := doc["spec"].(map[string]any)
+	podSpec, ok := doc["spec"].(map[string]any)
 	if !ok {
 		return ""
 	}
 	// Deployment/StatefulSet/DaemonSet/Job: spec.template.spec.containers. Pod: spec.containers.
-	if tmpl, ok := spec["template"].(map[string]any); ok {
+	if tmpl, ok := podSpec["template"].(map[string]any); ok {
 		if ts, ok := tmpl["spec"].(map[string]any); ok {
 			return firstImageFromContainers(ts)
 		}
 	}
-	return firstImageFromContainers(spec)
+	return firstImageFromContainers(podSpec)
 }
 
-func firstImageFromContainers(spec map[string]any) string {
-	containers, ok := spec["containers"].([]any)
+func firstImageFromContainers(podSpec map[string]any) string {
+	containers, ok := podSpec["containers"].([]any)
 	if !ok || len(containers) == 0 {
 		return ""
 	}
@@ -519,7 +490,7 @@ func kindLoadImage(provider, cluster, imageRef string) error {
 	if kindNodeHasImage(provider, cluster, imageRef) {
 		return nil
 	}
-	engine := exec.Command(engineCLI(provider), "save", "-o", "-", imageRef)
+	engine := exec.Command(container.EngineBinary(provider), "save", "-o", "-", imageRef)
 	tarBytes, serr := engine.Output()
 	if serr != nil {
 		return fmt.Errorf("deploy:kindcluster: save image %q: %w", imageRef, serr)
@@ -546,7 +517,7 @@ func kindLoadImage(provider, cluster, imageRef string) error {
 // the image, via the engine's exec. Best-effort: a probe failure means "load it".
 func kindNodeHasImage(provider, cluster, imageRef string) bool {
 	node := cluster + "-control-plane"
-	cmd := exec.Command(engineCLI(provider), "exec", node, "crictl", "images")
+	cmd := exec.Command(container.EngineBinary(provider), "exec", node, "crictl", "images")
 	out, err := cmd.Output()
 	if err != nil {
 		return false
@@ -567,14 +538,4 @@ func kindNodeHasImage(provider, cluster, imageRef string) bool {
 		}
 	}
 	return false
-}
-
-// engineCLI maps a kind provider word to the container-engine CLI binary. It is the
-// same mapping charly's engine class uses (container.EngineBinary), inlined here to
-// avoid importing the class into a hot path that only needs the CLI name.
-func engineCLI(provider string) string {
-	if provider == "" {
-		return "docker"
-	}
-	return provider
 }

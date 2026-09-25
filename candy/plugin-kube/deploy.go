@@ -9,6 +9,8 @@ import (
 	"strings"
 
 	"github.com/opencharly/sdk"
+	"github.com/opencharly/sdk/deploykit"
+	"github.com/opencharly/sdk/kit"
 	pb "github.com/opencharly/spec/proto"
 	"github.com/opencharly/spec/shellquote"
 	"github.com/opencharly/spec/spec"
@@ -48,6 +50,41 @@ import (
 // deployKubernetesVersion is the candy version stamped onto the ledger record (kept in
 // lockstep with charly.yml + the Describe capability version).
 const deployKubernetesVersion = "2026.174.1200"
+
+// resolveWorkloadImage resolves the image ref + capabilities for a deploy that runs a
+// workload — the ONE shared resolution both deploy:kubernetes and deploy:kindcluster
+// use (R3). engine selects the local store the image is read from; it must be the
+// SAME engine the workload ultimately runs on.
+func resolveWorkloadImage(node *spec.Deploy, name, engine string) (imageRef string, capsJSON []byte, err error) {
+	authored := name
+	if node != nil && node.Image != "" {
+		authored = node.Image
+	}
+	if node != nil && node.Version != "" {
+		imageRef = spec.LeafName(authored) + ":" + node.Version
+		if !kit.LocalImageExists(engine, imageRef) {
+			return "", nil, fmt.Errorf("deploy %q: pinned image %q not present in local %s storage", name, imageRef, engine)
+		}
+	} else {
+		resolved, rerr := kit.ResolveLocalImageRef(engine, spec.LeafName(authored))
+		if rerr != nil {
+			return "", nil, fmt.Errorf("deploy %q: resolving image %q: %w", name, authored, rerr)
+		}
+		imageRef = resolved
+	}
+	caps, cerr := deploykit.ExtractMetadata(engine, imageRef)
+	if cerr != nil {
+		return "", nil, fmt.Errorf("deploy %q: extracting capabilities from image %q: %w", name, imageRef, cerr)
+	}
+	if caps == nil {
+		return "", nil, fmt.Errorf("deploy %q: image %q has no ai.opencharly labels (not an opencharly image?)", name, imageRef)
+	}
+	capsJSON, merr := json.Marshal(caps)
+	if merr != nil {
+		return "", nil, fmt.Errorf("deploy %q: marshal capabilities: %w", name, merr)
+	}
+	return imageRef, capsJSON, nil
+}
 
 // kubernetesTeardownProbeTimeout bounds the reachability probe the teardown runs before it attempts
 // `kubectl delete`. Named + bounded rather than an untimed call: a wedged API server must not
