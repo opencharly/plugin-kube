@@ -68,24 +68,28 @@ type kindPreresolveParams struct {
 }
 
 // kindClusterConfig is the rendered kind Cluster config (cluster-api kind.x-k8s.io).
-// Egress-validated against egress_kind.cue before it is written.
+// Egress-validated against egress_kind.cue before it is written. The json tags are
+// REQUIRED and must match the yaml tags: the preresolver round-trips this struct
+// through json.Marshal → map[string]any → the egress gate (which sees the JSON
+// keys), so a yaml-only tag yields APIVersion/Nodes and the gate rejects the
+// config as missing apiVersion/nodes.
 type kindClusterConfig struct {
-	Kind       string           `yaml:"kind"`
-	APIVersion string           `yaml:"apiVersion"`
-	Nodes      []kindConfigNode `yaml:"nodes"`
+	Kind       string           `yaml:"kind" json:"kind"`
+	APIVersion string           `yaml:"apiVersion" json:"apiVersion"`
+	Nodes      []kindConfigNode `yaml:"nodes" json:"nodes"`
 }
 
 type kindConfigNode struct {
-	Role              string            `yaml:"role"`
-	Image             string            `yaml:"image,omitempty"`
-	ExtraPortMappings []kindPortMapping `yaml:"extraPortMappings,omitempty"`
+	Role              string            `yaml:"role" json:"role"`
+	Image             string            `yaml:"image,omitempty" json:"image,omitempty"`
+	ExtraPortMappings []kindPortMapping `yaml:"extraPortMappings,omitempty" json:"extraPortMappings,omitempty"`
 }
 
 type kindPortMapping struct {
-	ContainerPort int    `yaml:"containerPort"`
-	HostPort      int    `yaml:"hostPort"`
-	ListenAddress string `yaml:"listenAddress,omitempty"`
-	Protocol      string `yaml:"protocol,omitempty"`
+	ContainerPort int    `yaml:"containerPort" json:"containerPort"`
+	HostPort      int    `yaml:"hostPort" json:"hostPort"`
+	ListenAddress string `yaml:"listenAddress,omitempty" json:"listenAddress,omitempty"`
+	Protocol      string `yaml:"protocol,omitempty" json:"protocol,omitempty"`
 }
 
 // invokeKindclusterPreresolve serves Invoke(OpPreresolve) for deploy:kindcluster.
@@ -168,10 +172,6 @@ func invokeKindclusterPreresolve(ctx context.Context, req *pb.InvokeRequest) (*p
 	if err := validateEgressValue(ctx, exec, "kind_cluster", "kindcluster.config", cfgDoc); err != nil {
 		return nil, fmt.Errorf("deploy %q: %w", p.Name, err)
 	}
-	cfgYAML, err := yaml.Marshal(cfgDoc)
-	if err != nil {
-		return nil, fmt.Errorf("deploy %q: render kind config yaml: %w", p.Name, err)
-	}
 
 	sanitized := kindClusterName(p.Name)
 	kubeContext := kc.KubeconfigContext
@@ -180,10 +180,13 @@ func invokeKindclusterPreresolve(ctx context.Context, req *pb.InvokeRequest) (*p
 	}
 
 	venue := spec.KindclusterDeployVenue{
-		ClusterName:   sanitized,
-		Provider:      provider,
-		NodeImage:     nodeImage,
-		ClusterConfig: cfgYAML,
+		ClusterName: sanitized,
+		Provider:    provider,
+		NodeImage:   nodeImage,
+		// ClusterConfig is a RawBody (json.RawMessage), so it carries the JSON
+		// form. JSON is a YAML subset, so `kind create cluster --config` accepts
+		// it verbatim — no YAML re-marshal needed.
+		ClusterConfig: cfgJSON,
 		KubeContext:   kubeContext,
 		DeployName:    p.Name,
 	}
@@ -387,9 +390,13 @@ func invokeDeployKindcluster(req *pb.InvokeRequest) (*pb.InvokeReply, error) {
 	}
 
 	// Teardown: `kind delete cluster` (idempotent on a missing cluster) + remove the
-	// generated tree. Recorded + replayed at `charly deploy del`.
-	teardown := fmt.Sprintf("kind delete cluster --name %s >/dev/null 2>&1 || true;",
-		shellSingleQuote(kv.ClusterName))
+	// generated tree. Recorded + replayed at `charly deploy del`. KIND_EXPERIMENTAL_PROVIDER
+	// is set from the venue's engine — `kind delete cluster` is ENGINE-SCOPED like `get
+	// clusters`, so without it a podman cluster is invisible to the default (docker)
+	// engine and the delete silently no-ops (measured: the cluster survived teardown).
+	teardown := fmt.Sprintf(
+		"KIND_EXPERIMENTAL_PROVIDER=%s kind delete cluster --name %s >/dev/null 2>&1 || true;",
+		shellSingleQuote(kv.Provider), shellSingleQuote(kv.ClusterName))
 	if kv.TreeRoot != "" {
 		teardown += fmt.Sprintf(" rm -rf %s", shellSingleQuote(kv.TreeRoot))
 	}

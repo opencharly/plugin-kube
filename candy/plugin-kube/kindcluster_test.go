@@ -8,10 +8,50 @@ package kube
 // cannot be a unit test).
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/opencharly/spec/spec"
 )
+
+// TestKindClusterConfig_JSONKeysMatchEgress asserts the rendered config carries the
+// JSON keys the egress gate sees (apiVersion/nodes/role) — NOT the Go field names.
+// The preresolver round-trips the config through json.Marshal → map → the gate; a
+// yaml-only struct tag yields APIVersion/Nodes and the gate rejects the config as
+// missing apiVersion/nodes (measured live). This test fails on that regression.
+func TestKindClusterConfig_JSONKeysMatchEgress(t *testing.T) {
+	cfg := renderKindClusterConfig(&spec.Kindcluster{Nodes: []spec.KindclusterNode{{Role: "control-plane"}}}, kindDefaultNodeImage)
+	raw, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := doc["apiVersion"]; !ok {
+		t.Fatalf("config JSON must carry apiVersion (egress key), got keys %v", keysOf(doc))
+	}
+	if _, ok := doc["APIVersion"]; ok {
+		t.Fatalf("config JSON leaked the Go field name APIVersion: %v", keysOf(doc))
+	}
+	nodes, ok := doc["nodes"].([]any)
+	if !ok || len(nodes) == 0 {
+		t.Fatalf("config JSON must carry a non-empty nodes array, got %v", doc["nodes"])
+	}
+	n0, _ := nodes[0].(map[string]any)
+	if _, ok := n0["role"]; !ok {
+		t.Fatalf("node JSON must carry role, got %v", n0)
+	}
+}
+
+func keysOf(m map[string]any) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	return out
+}
 
 func TestRenderKindClusterConfig_DefaultSingleControlPlane(t *testing.T) {
 	kc := &spec.Kindcluster{}
