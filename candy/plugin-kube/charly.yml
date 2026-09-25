@@ -1,4 +1,4 @@
-version: 2026.232.0520
+version: 2026.261.1747
 plugin-kube:
     candy:
         version: 2026.216.1851
@@ -6,7 +6,10 @@ plugin-kube:
             OUT-OF-TREE charly plugin owning ALL Kubernetes cluster interaction: the
             `kube` cluster-probe check VERB, the `deploy:kubernetes` SUBSTRATE (the
             `target: kubernetes` workload deploy, F1 — `kubectl apply -k` on the
-            plugin-generated Kustomize tree (`candy/plugin-kube/materialize.go`'s `materializeKustomize`, on the host)), AND the k3s post-provision finalization
+            plugin-generated Kustomize tree (`candy/plugin-kube/materialize.go`'s `materializeKustomize`, on the host)), the
+            `deploy:kindcluster` SUBSTRATE (a local Kubernetes-in-Docker cluster
+            provisioned by the upstream `kind` tool on the operator's container engine,
+            then the same Kustomize workload), AND the k3s post-provision finalization
             (S3, FINAL/K5 unit 6 — relocated wholesale from charly/k3s_post.go: the
             guest-forward kubeconfig rewrite + the ~/.kube/config merge) the
             k3s-server / target:kubernetes deploy seam needs — a standalone Go module
@@ -39,12 +42,14 @@ plugin-kube:
             plugin's own k3s_post.go: the guest-forward kubeconfig rewrite, now
             self-loading the project PLUGIN-SIDE too, then the kubeconfig merge into
             ~/.kube/config). The R10 consumers are the check-k3s bed (the `kube:`
-            verb, via the k3s-server candy) and the check-k8s-deploy bed (the
-            deploy:kubernetes substrate).
+            verb, via the k3s-server candy), the check-k8s-deploy bed (the
+            deploy:kubernetes substrate), and the check-kindcluster-* beds (the
+            deploy:kindcluster substrate).
         plugin:
             providers:
                 - verb:kube
                 - deploy:kubernetes
+                - deploy:kindcluster
             source: github.com/opencharly/plugin-kube/candy/plugin-kube
             primary:
                 kube: method
