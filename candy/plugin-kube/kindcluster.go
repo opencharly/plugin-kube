@@ -497,25 +497,36 @@ func kindLoadImage(provider, cluster, imageRef string) error {
 	if kindNodeHasImage(provider, cluster, imageRef) {
 		return nil
 	}
-	engine := exec.Command(container.EngineBinary(provider), "save", "-o", "-", imageRef)
-	tarBytes, serr := engine.Output()
-	if serr != nil {
-		return fmt.Errorf("deploy:kindcluster: save image %q: %w", imageRef, serr)
-	}
+	// Save to a REAL temp file, NOT stdout — see kindSaveImageArchive.
 	archive, err := os.CreateTemp("", "charly-kind-image-*.tar")
 	if err != nil {
 		return fmt.Errorf("deploy:kindcluster: create image archive: %w", err)
 	}
 	defer os.Remove(archive.Name())
-	if _, werr := archive.Write(tarBytes); werr != nil {
-		archive.Close()
-		return fmt.Errorf("deploy:kindcluster: write image archive: %w", werr)
-	}
 	if cerr := archive.Close(); cerr != nil {
 		return fmt.Errorf("deploy:kindcluster: close image archive: %w", cerr)
 	}
+	if serr := kindSaveImageArchive(provider, imageRef, archive.Name()); serr != nil {
+		return fmt.Errorf("deploy:kindcluster: %w", serr)
+	}
 	if out, lerr := runKind(provider, "load", "image-archive", archive.Name(), "--name", cluster); lerr != nil {
 		return fmt.Errorf("deploy:kindcluster: load image %q into %q: %w\n%s", imageRef, cluster, lerr, strings.TrimSpace(out))
+	}
+	return nil
+}
+
+// kindSaveImageArchive saves imageRef from the engine's local storage into dest as a
+// docker-archive tar. `podman save -o <dest>` emits `manifest.json` — the format a kind
+// node's `ctr images import` accepts. It is deliberately NOT `podman save -o -`: `-` is
+// not stdout on the podman versions charly supports (measured on podman 6.1.2: it
+// writes a FILE named `-` and leaves stdout EMPTY), so the load saw an empty archive
+// and failed with `ctr: unrecognized image format`. Extracted so a live-or-skip test
+// drives THIS path (TestKindSaveImageArchive) — reintroducing `-o -` leaves `dest`
+// empty and fails the test.
+func kindSaveImageArchive(provider, imageRef, dest string) error {
+	save := exec.Command(container.EngineBinary(provider), "save", "-o", dest, imageRef)
+	if out, err := save.CombinedOutput(); err != nil {
+		return fmt.Errorf("save image %q: %w\n%s", imageRef, err, strings.TrimSpace(string(out)))
 	}
 	return nil
 }
