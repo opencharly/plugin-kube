@@ -497,22 +497,22 @@ func kindLoadImage(provider, cluster, imageRef string) error {
 	if kindNodeHasImage(provider, cluster, imageRef) {
 		return nil
 	}
-	engine := exec.Command(container.EngineBinary(provider), "save", "-o", "-", imageRef)
-	tarBytes, serr := engine.Output()
-	if serr != nil {
-		return fmt.Errorf("deploy:kindcluster: save image %q: %w", imageRef, serr)
-	}
+	// Save to a REAL temp file, NOT stdout: `podman save -o -` does not emit the
+	// archive to stdout on the podman versions charly supports (measured on podman
+	// 6.1.2: an EMPTY stdout, so `kind load image-archive <empty>` then fails with
+	// `ctr: unrecognized image format`). `podman save -o <file>` and
+	// `podman save > <file>` both emit the docker-archive tar (`manifest.json`).
 	archive, err := os.CreateTemp("", "charly-kind-image-*.tar")
 	if err != nil {
 		return fmt.Errorf("deploy:kindcluster: create image archive: %w", err)
 	}
 	defer os.Remove(archive.Name())
-	if _, werr := archive.Write(tarBytes); werr != nil {
-		archive.Close()
-		return fmt.Errorf("deploy:kindcluster: write image archive: %w", werr)
-	}
 	if cerr := archive.Close(); cerr != nil {
 		return fmt.Errorf("deploy:kindcluster: close image archive: %w", cerr)
+	}
+	save := exec.Command(container.EngineBinary(provider), "save", "-o", archive.Name(), imageRef)
+	if out, serr := save.CombinedOutput(); serr != nil {
+		return fmt.Errorf("deploy:kindcluster: save image %q: %w\n%s", imageRef, serr, strings.TrimSpace(string(out)))
 	}
 	if out, lerr := runKind(provider, "load", "image-archive", archive.Name(), "--name", cluster); lerr != nil {
 		return fmt.Errorf("deploy:kindcluster: load image %q into %q: %w\n%s", imageRef, cluster, lerr, strings.TrimSpace(out))
