@@ -149,8 +149,17 @@ func rewriteK3sServerToForward(ctx context.Context, exec *sdk.Executor, retrieve
 // host-port allocation" even though `charly vm create`'s own persist (verified via
 // a live isolated CHARLY_DEPLOY_CONFIG repro, RDD) landed correctly and stayed
 // stable on disk throughout the run — the read, not the write, was broken.
+func dbgFwd(format string, a ...any) {
+	if f, e := os.OpenFile("/tmp/kv_forwards_debug.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644); e == nil {
+		fmt.Fprintf(f, "DEBUG "+format+"\n", a...)
+		f.Close()
+	}
+}
+
 func deployVMForwards(ctx context.Context, exec *sdk.Executor, vmEntity, deployName string) ([]string, error) {
+	dbgFwd("entry vmEntity=%q deployName=%q", vmEntity, deployName)
 	if vmEntity == "" {
+		dbgFwd("early: empty vmEntity")
 		// pod/local (non-VM) k3s-server deploys, or an old caller that never resolved an entity —
 		// no VM spec to consult, so no forwards.
 		return nil, nil
@@ -177,9 +186,11 @@ func deployVMForwards(ctx context.Context, exec *sdk.Executor, vmEntity, deployN
 		return nil, fmt.Errorf("vm entity %q not resolved for deploy %q (project dir %q) — a vm deploy with port_forwards must resolve its entity to rewrite the k3s kubeconfig; refusing to merge a guest-local kubeconfig", vmEntity, deployName, dir)
 	}
 	vm := *vmPtr
+	dbgFwd("resolved networkNil=%v declared=%v", vm.Network == nil, func() []string { if vm.Network == nil { return nil }; return vm.Network.PortForwards }())
 	if vm.Network == nil {
 		return nil, nil
 	}
+		dbgFwd("early: network nil")
 	domainID := vmshared.VmDomainIdentity(deployName)
 	key := "vm:" + domainID
 	var alloc map[string]int
