@@ -3,6 +3,8 @@ package kube
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"strings"
 	"testing"
 
 	"github.com/opencharly/sdk"
@@ -22,11 +24,18 @@ import (
 // drive deployVMForwards end-to-end without a real host reverse-channel broker.
 type fakeExecutorServiceClient struct {
 	projectDir string
+	// connectErr, when set, makes the deploy-plugins-connect leg FAIL — the
+	// project-dir-resolve failure the loud-fail contract must surface instead of
+	// degrading to "" and merging a guest-local kubeconfig.
+	connectErr error
 }
 
 func (f *fakeExecutorServiceClient) HostBuild(_ context.Context, in *pb.HostBuildRequest, _ ...grpc.CallOption) (*pb.HostBuildReply, error) {
 	switch in.GetKind() {
 	case "deploy-plugins-connect":
+		if f.connectErr != nil {
+			return nil, f.connectErr
+		}
 		b, err := json.Marshal(spec.DeployPluginsConnectReply{Dir: f.projectDir})
 		if err != nil {
 			return nil, err
@@ -149,5 +158,37 @@ func TestDeployVMForwards_EmptyVmEntity_NoOp(t *testing.T) {
 	}
 	if resolved != nil {
 		t.Fatalf("deployVMForwards: want a nil result for an empty vmEntity, got %v", resolved)
+	}
+}
+
+// TestDeployVMForwards_ProjectDirResolveFails_ErrorsLoudly pins the RCA fix (opencharly/
+// plugin-kube#9): a vm deploy that carries port_forwards MUST resolve its project dir. A
+// failure there can no longer degrade to "" (which made rewriteK3sServerToForward a no-op and
+// merged a kubeconfig still pointing at the guest-local 127.0.0.1:6443) — it errors loudly.
+func TestDeployVMForwards_ProjectDirResolveFails_ErrorsLoudly(t *testing.T) {
+	exec := sdk.NewInProcExecutor(&fakeExecutorServiceClient{connectErr: errors.New("host seam down")})
+
+	_, err := deployVMForwards(context.Background(), exec, "k3s-vm", "rca-deploy4")
+	if err == nil {
+		t.Fatal("deployVMForwards: want an error when the project-dir resolve fails, got nil (the silent-swallow class)")
+	}
+	if !strings.Contains(err.Error(), "resolving the project dir") {
+		t.Fatalf("error must name the project-dir resolve, got: %v", err)
+	}
+}
+
+// TestDeployVMForwards_VmEntityUnresolved_ErrorsLoudly pins the second half of the RCA fix:
+// when the vm entity does not resolve, the function must error rather than return (nil, nil)
+// and merge a guest-local kubeconfig.
+func TestDeployVMForwards_VmEntityUnresolved_ErrorsLoudly(t *testing.T) {
+	stubVmEntityForForwards(t, nil) // resolve returns (nil, nil)
+	exec := sdk.NewInProcExecutor(&fakeExecutorServiceClient{projectDir: "/proj"})
+
+	_, err := deployVMForwards(context.Background(), exec, "k3s-vm", "rca-deploy4")
+	if err == nil {
+		t.Fatal("deployVMForwards: want an error when the vm entity does not resolve, got nil")
+	}
+	if !strings.Contains(err.Error(), "not resolved") {
+		t.Fatalf("error must name the unresolved vm entity, got: %v", err)
 	}
 }
