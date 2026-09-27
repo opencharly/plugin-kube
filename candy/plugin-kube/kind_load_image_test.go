@@ -8,17 +8,18 @@ import (
 	"testing"
 )
 
-// TestKindSaveProducesDockerArchive is the R7 witness for the `podman save -o -`
-// defect in kindLoadImage: the pre-fix code piped `podman save -o - <image>` into
-// `kind load image-archive`, but podman's `-o -` does NOT write the archive to stdout
-// on the supported versions (measured on podman 6.1.2: an EMPTY stdout), so the kind
-// node's `ctr images import` failed with `ctr: unrecognized image format`. This proves
-// the fixed invocation `podman save -o <file> <image>` emits a docker-archive tar
-// (`manifest.json` present, non-empty).
+// TestKindSaveImageArchive is the R7 witness for the `podman save -o -` defect: the
+// pre-fix kindLoadImage piped `podman save -o - <image>` into `kind load image-archive`,
+// but `-` is not stdout on the supported podman versions (measured on podman 6.1.2: it
+// writes a FILE named `-` and leaves stdout EMPTY), so the kind node's
+// `ctr images import` failed with `ctr: unrecognized image format`. This drives the
+// EXTRACTED path `kindSaveImageArchive` (the exact call `kindLoadImage` makes) and
+// asserts the destination is non-empty and a docker-archive (`manifest.json`) — so
+// reintroducing `-o -` leaves `dest` empty and FAILS this test.
 //
 // LIVE OR SKIP (R7a): gated on podman + a real local image via KIND_LOAD_TEST_IMAGE;
 // absent → the test SKIPS visibly, never a silent pass.
-func TestKindSaveProducesDockerArchive(t *testing.T) {
+func TestKindSaveImageArchive(t *testing.T) {
 	if _, err := exec.LookPath("podman"); err != nil {
 		t.Skip("podman not present — live or skip")
 	}
@@ -36,9 +37,9 @@ func TestKindSaveProducesDockerArchive(t *testing.T) {
 		t.Fatalf("close temp: %v", err)
 	}
 
-	// The fixed invocation: a REAL output path, never `-`.
-	if out, err := exec.Command("podman", "save", "-o", f.Name(), img).CombinedOutput(); err != nil {
-		t.Fatalf("podman save -o <file> %s: %v\n%s", img, err, out)
+	// The changed path: the exact save kindLoadImage invokes.
+	if err := kindSaveImageArchive("podman", img, f.Name()); err != nil {
+		t.Fatalf("kindSaveImageArchive(%s): %v", img, err)
 	}
 
 	st, err := os.Stat(f.Name())
@@ -46,7 +47,7 @@ func TestKindSaveProducesDockerArchive(t *testing.T) {
 		t.Fatalf("stat archive: %v", err)
 	}
 	if st.Size() == 0 {
-		t.Fatalf("podman save -o <file> produced an EMPTY archive for %s — the pre-fix `-o -` shape", img)
+		t.Fatalf("kindSaveImageArchive left an EMPTY archive for %s — the pre-fix `-o -` shape", img)
 	}
 
 	fh, err := os.Open(f.Name())
