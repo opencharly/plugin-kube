@@ -1,7 +1,5 @@
-version: 2026.261.1747
 plugin-kube:
     candy:
-        version: 2026.216.1851
         description: |-
             OUT-OF-TREE charly plugin owning ALL Kubernetes cluster interaction: the
             `kube` cluster-probe check VERB, the `deploy:kubernetes` SUBSTRATE (the
