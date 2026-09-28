@@ -60,13 +60,17 @@ func resolveWorkloadImage(node *spec.Deploy, name, engine string) (imageRef stri
 	if node != nil && node.Image != "" {
 		authored = node.Image
 	}
-	if node != nil && node.Version != "" {
-		imageRef = spec.LeafName(authored) + ":" + node.Version
+	// #313 removed spec.Deploy.Version: the tag now rides IN `image` (a deploy pins by
+	// authoring `image: box:tag`). An explicitly-tagged image keeps the pre-#313
+	// pinned-image contract — it must be present locally; an untagged name resolves to
+	// the local :latest.
+	imageRef = spec.LeafName(authored)
+	if strings.Contains(imageRef, ":") {
 		if !kit.LocalImageExists(engine, imageRef) {
 			return "", nil, fmt.Errorf("deploy %q: pinned image %q not present in local %s storage", name, imageRef, engine)
 		}
 	} else {
-		resolved, rerr := kit.ResolveLocalImageRef(engine, spec.LeafName(authored))
+		resolved, rerr := kit.ResolveLocalImageRef(engine, imageRef)
 		if rerr != nil {
 			return "", nil, fmt.Errorf("deploy %q: resolving image %q: %w", name, authored, rerr)
 		}
