@@ -55,6 +55,21 @@ const deployKubernetesVersion = "2026.174.1200"
 // workload — the ONE shared resolution both deploy:kubernetes and deploy:kindcluster
 // use (R3). engine selects the local store the image is read from; it must be the
 // SAME engine the workload ultimately runs on.
+// imageRefTag returns the TAG of an image ref, or "" when it carries none. A tag is
+// the text after the LAST `:` that lies AFTER the LAST `/` — this distinguishes it
+// from a registry host:port (`localhost:5099/box`, colon BEFORE the last slash) and
+// from a namespace separator (`candy:name`, also before the last slash once a path
+// segment follows). `nginx` → ""; `box:latest` → "latest"; `localhost:5099/box` → "";
+// `localhost:5099/box:v1` → "v1"; `ghcr.io/o/box:2026.04` → "2026.04".
+func imageRefTag(ref string) string {
+	lastSlash := strings.LastIndex(ref, "/")
+	lastColon := strings.LastIndex(ref, ":")
+	if lastColon <= lastSlash {
+		return ""
+	}
+	return ref[lastColon+1:]
+}
+
 func resolveWorkloadImage(node *spec.Deploy, name, engine string) (imageRef string, capsJSON []byte, err error) {
 	authored := name
 	if node != nil && node.Image != "" {
@@ -63,13 +78,10 @@ func resolveWorkloadImage(node *spec.Deploy, name, engine string) (imageRef stri
 	// #313 removed spec.Deploy.Version: the tag now rides IN `image` (a deploy pins by
 	// authoring `image: box:tag`). An explicitly-tagged image keeps the pre-#313
 	// pinned-image contract — it must be present locally; an untagged name resolves to
-	// the local :latest.
-	//
-	// The tag is detected on the AUTHORED ref BEFORE any namespace-leaf strip:
-	// spec.LeafName splits on `:` (the `candy:name` namespace separator), so applying
-	// it to a tagged IMAGE ref would silently drop the tag (`…:nope.000` → `nope.000`).
-	// Only the untagged name is leaf-stripped.
-	if strings.Contains(authored, ":") {
+	// the local :latest. `imageRefTag` recognises a REAL OCI tag (see below); a bare
+	// `strings.Contains(ref, ":")` cannot tell a tag from a registry host:port
+	// (`localhost:5099/box`) or a namespace separator (`candy:name`).
+	if imageRefTag(authored) != "" {
 		imageRef = authored
 		if !kit.LocalImageExists(engine, imageRef) {
 			return "", nil, fmt.Errorf("deploy %q: pinned image %q not present in local %s storage", name, imageRef, engine)
