@@ -64,12 +64,18 @@ func resolveWorkloadImage(node *spec.Deploy, name, engine string) (imageRef stri
 	// authoring `image: box:tag`). An explicitly-tagged image keeps the pre-#313
 	// pinned-image contract — it must be present locally; an untagged name resolves to
 	// the local :latest.
-	imageRef = spec.LeafName(authored)
-	if strings.Contains(imageRef, ":") {
+	//
+	// The tag is detected on the AUTHORED ref BEFORE any namespace-leaf strip:
+	// spec.LeafName splits on `:` (the `candy:name` namespace separator), so applying
+	// it to a tagged IMAGE ref would silently drop the tag (`…:nope.000` → `nope.000`).
+	// Only the untagged name is leaf-stripped.
+	if strings.Contains(authored, ":") {
+		imageRef = authored
 		if !kit.LocalImageExists(engine, imageRef) {
 			return "", nil, fmt.Errorf("deploy %q: pinned image %q not present in local %s storage", name, imageRef, engine)
 		}
 	} else {
+		imageRef = spec.LeafName(authored)
 		resolved, rerr := kit.ResolveLocalImageRef(engine, imageRef)
 		if rerr != nil {
 			return "", nil, fmt.Errorf("deploy %q: resolving image %q: %w", name, authored, rerr)
