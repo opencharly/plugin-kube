@@ -7,6 +7,7 @@ package kube
 // (the tag came from a removed `spec.Deploy.Version` field).
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/opencharly/spec/spec"
@@ -23,16 +24,7 @@ func TestResolveWorkloadImage_TaggedImageIsPinnedContract(t *testing.T) {
 	if err == nil {
 		t.Fatalf("a tagged image absent locally must fail (pinned-image contract)")
 	}
-	if got := err.Error(); !contains(got, "pinned image") {
+	if got := err.Error(); !strings.Contains(got, "pinned image") {
 		t.Fatalf("want the pinned-image error, got: %v", got)
 	}
-}
-
-func contains(haystack, needle string) bool {
-	for i := 0; i+len(needle) <= len(haystack); i++ {
-		if haystack[i:i+len(needle)] == needle {
-			return true
-		}
-	}
-	return false
 }
