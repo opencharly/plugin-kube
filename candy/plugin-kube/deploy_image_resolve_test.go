@@ -3,8 +3,11 @@ package kube
 // deploy_image_resolve_test.go — R7 coverage for the post-#313 image-tag resolution.
 //
 // A bare `strings.Contains(ref, ":")` cannot distinguish a TAG from a registry
-// host:port (`localhost:5099/box`) or a namespace separator (`ns:name`); imageRefTag
-// parses the tag as the text after the last `:` that lies after the last `/`.
+// host:port (`localhost:5099/box`); imageRefTag parses the tag as the text after
+// the last `:` that lies after the last `/`. A bare `ns:name` (no slash) IS
+// indistinguishable from `name:tag` and is treated as a tag — correct for an OCI
+// image ref (a repository name carries no bare colon). The `candy:name` NAMESPACE
+// form is a `spec.LeafName` input, applied only on the untagged branch.
 
 import (
 	"strings"
@@ -21,7 +24,7 @@ func TestImageRefTag(t *testing.T) {
 		{"localhost:5099/box:v1", "v1"}, // host:port + tag
 		{"localhost/charly-box:2026.04", "2026.04"},
 		{"ghcr.io/opencharly/versa:next", "next"},
-		{"ns:name", "name"}, // namespaced ref: `name` is the tag position
+		{"ns:name", "name"}, // no slash → indistinguishable from name:tag; a tag
 	}
 	for _, c := range cases {
 		if got := imageRefTag(c.ref); got != c.want {
