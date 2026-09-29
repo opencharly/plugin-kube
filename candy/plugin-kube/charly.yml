@@ -73,5 +73,12 @@ plugin-kube:
                 method: nodes
               stdout:
                 - contains: Ready
+              # `runtime` — a live `kube:` PROBE (the verb dispatches to the
+              # out-of-process plugin against the ambient cluster). The former
+              # `context: [deploy]` is the BUILD/EMISSION context, whose step
+              # parser accepts only build verbs (mkdir/copy/write/…), so `kube:`
+              # was "no verb set" and the step could never pass. Every other
+              # `kube:` check step in the repo (and the beds' own kvv-wait-nodes)
+              # authors `context: [runtime]`.
               context:
-                - deploy
+                - runtime
