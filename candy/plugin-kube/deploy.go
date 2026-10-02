@@ -60,18 +60,16 @@ func resolveWorkloadImage(node *spec.Deploy, name, engine string) (imageRef stri
 	if node != nil && node.Image != "" {
 		authored = node.Image
 	}
-	if node != nil && node.Version != "" {
-		imageRef = spec.LeafName(authored) + ":" + node.Version
-		if !kit.LocalImageExists(engine, imageRef) {
-			return "", nil, fmt.Errorf("deploy %q: pinned image %q not present in local %s storage", name, imageRef, engine)
-		}
-	} else {
-		resolved, rerr := kit.ResolveLocalImageRef(engine, spec.LeafName(authored))
-		if rerr != nil {
-			return "", nil, fmt.Errorf("deploy %q: resolving image %q: %w", name, authored, rerr)
-		}
-		imageRef = resolved
+	// The former deploy-level `version:` pin is REMOVED (the schema-versioning-removal
+	// cutover): a pinned ref now rides the `image:` field itself (`image: name:tag`),
+	// and ResolveLocalImageRef resolves BOTH a bare short name (newest build) and a
+	// fully-tagged ref (pinned + existence-checked) — so the two branches collapse to
+	// ONE call (R5).
+	resolved, rerr := kit.ResolveLocalImageRef(engine, spec.LeafName(authored))
+	if rerr != nil {
+		return "", nil, fmt.Errorf("deploy %q: resolving image %q: %w", name, authored, rerr)
 	}
+	imageRef = resolved
 	caps, cerr := deploykit.ExtractMetadata(engine, imageRef)
 	if cerr != nil {
 		return "", nil, fmt.Errorf("deploy %q: extracting capabilities from image %q: %w", name, imageRef, cerr)
