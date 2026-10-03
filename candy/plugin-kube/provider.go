@@ -119,18 +119,25 @@ func (provider) Invoke(ctx context.Context, req *pb.InvokeRequest) (*pb.InvokeRe
 	// `kube:` check verb runs independent of any specific deploy), so it resolves the project dir
 	// via hostProjectDir's os.Getwd()-on-the-host leg ("deploy-plugins-connect", Path="" — the
 	// returned Dir is unconditional, only the plugin-connect side effect needs a real deploy name,
-	// which this call doesn't need). A miss / empty context is a valid result — the plugin falls
-	// back to the kubeconfig current-context (byte-equivalent to the former host-side
-	// direct-LoadUnified lookup, which swallowed every resolve miss to "").
+	// which this call doesn't need).
+	//
+	// A resolve FAILURE for a NAMED cluster is LOUD: the author set `cluster:`, so a resolve error
+	// must not silently degrade to the kubeconfig current-context — on a host whose current-context
+	// is empty that produced the bare `no kubeconfig context selected` and hid the cause (the
+	// plugin-kubevirt twin, plugin-kubevirt#9). A legitimate miss still falls back: only a
+	// hostProjectDir / resolve ERROR fails, and a resolved-but-empty context is left for the
+	// current-context fallback below.
 	if in.Cluster != "" && in.KubeContext == "" {
 		exec, err := sdk.ExecutorForInvoke(ctx, req.GetExecutorBrokerId())
 		if err != nil {
 			return sdk.ResultJSON("fail", fmt.Sprintf("kube: %s: %v", method, err))
 		}
-		if dir, derr := hostProjectDir(ctx, exec, ""); derr == nil {
-			if view, verr := loaderkit.ResolveKubernetesEntityViaExecutor(ctx, exec, dir, in.Cluster); verr == nil && view != nil {
-				in.KubeContext = view.KubeconfigContext
-			}
+		kctx, rerr := resolveKubeVerbCluster(ctx, exec, in.Cluster)
+		if rerr != nil {
+			return sdk.ResultJSON("fail", fmt.Sprintf("kube: %s: %v (refusing to fall back to the kubeconfig current-context)", method, rerr))
+		}
+		if kctx != "" {
+			in.KubeContext = kctx
 		}
 	}
 
@@ -140,3 +147,33 @@ func (provider) Invoke(ctx context.Context, req *pb.InvokeRequest) (*pb.InvokeRe
 	// The shared exit/stdout/stderr verdict pipeline (R3). kube produces no artifact.
 	return sdk.VerbVerdict("kube", method, out, runErr, &op, false)
 }
+
+// resolveKubeVerbCluster resolves a `kube:` step's `cluster: <profile>` to a concrete kubeconfig
+// context by self-loading the project PLUGIN-SIDE (loaderkit.ResolveKubernetesEntityViaExecutor,
+// the SAME helper candy/plugin-kubevirt uses). The author NAMED a cluster, so a resolve FAILURE
+// is a real failure and is RETURNED (never silently degraded to the kubeconfig current-context,
+// which on an empty current-context produced the bare `no kubeconfig context selected`). A
+// legitimate miss — the profile resolves but carries no context — returns ("", nil) so the
+// caller keeps its current-context fallback (opencharly/plugin-kube#15).
+func resolveKubeVerbCluster(ctx context.Context, exec *sdk.Executor, cluster string) (string, error) {
+	if exec == nil {
+		return "", fmt.Errorf("resolving cluster %q: no executor available", cluster)
+	}
+	dir, derr := hostProjectDir(ctx, exec, "")
+	if derr != nil {
+		return "", fmt.Errorf("resolving the project dir to resolve cluster %q: %w", cluster, derr)
+	}
+	view, verr := resolveKubernetesEntity(ctx, exec, dir, cluster)
+	if verr != nil {
+		return "", fmt.Errorf("resolving cluster %q: %w", cluster, verr)
+	}
+	if view == nil {
+		return "", nil
+	}
+	return view.KubeconfigContext, nil
+}
+
+// resolveKubernetesEntity is a package var (test seam) wrapping
+// loaderkit.ResolveKubernetesEntityViaExecutor — the same pattern k3s_post_forwards_test.go's
+// resolver vars use, so a unit test can drive resolveKubeVerbCluster without a live project.
+var resolveKubernetesEntity = loaderkit.ResolveKubernetesEntityViaExecutor
