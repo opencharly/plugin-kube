@@ -156,15 +156,25 @@ func deployVMForwards(ctx context.Context, exec *sdk.Executor, vmEntity, deployN
 		return nil, nil
 	}
 	// Resolve the project dir via the "deploy-plugins-connect" seam (os.Getwd() host-side, the
-	// SAME dir the host loader used) — needed below for the kind:vm entity self-load. A failure
-	// degrades to "" (best-effort, matches this function's own no-forward-on-miss contract).
-	dir, _ := hostProjectDir(ctx, exec, deployName)
+	// SAME dir the host loader used) — needed below for the kind:vm entity self-load. A VM
+	// deploy that carries port_forwards MUST resolve its entity, so this is LOUD: silently
+	// degrading to "" (as it once did) made rewriteK3sServerToForward no-op and merged a
+	// kubeconfig still pointing at the guest-local 127.0.0.1:6443 — a dead context with no
+	// error, exactly the silent-degradation class the deploy-state READ path already guards.
+	dir, derr := hostProjectDir(ctx, exec, deployName)
+	if derr != nil {
+		return nil, fmt.Errorf("resolving the project dir for %q (needed to resolve vm entity %q): %w", deployName, vmEntity, derr)
+	}
 	// K-wave W3a A3-phase-2: self-load the kind:vm entity plugin-side instead of the deleted
 	// "deploy-entity-resolve" host seam — unblocked now that LoadUnifiedViaExecutor (W1) lets a
-	// plugin load the project itself.
+	// plugin load the project itself. Reaching here means vmEntity != "" (an early return
+	// handles the non-VM case), so a nil/err result is a REAL failure, not a best-effort miss.
 	vmPtr, verr := resolveVmEntityForForwards(ctx, exec, dir, vmEntity)
-	if verr != nil || vmPtr == nil {
-		return nil, nil //nolint:nilerr // best-effort: see above
+	if verr != nil {
+		return nil, fmt.Errorf("resolving vm entity %q for deploy %q: %w", vmEntity, deployName, verr)
+	}
+	if vmPtr == nil {
+		return nil, fmt.Errorf("vm entity %q not resolved for deploy %q (project dir %q) — a vm deploy with port_forwards must resolve its entity to rewrite the k3s kubeconfig; refusing to merge a guest-local kubeconfig", vmEntity, deployName, dir)
 	}
 	vm := *vmPtr
 	if vm.Network == nil {
