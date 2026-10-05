@@ -199,7 +199,7 @@ func deployVMForwards(ctx context.Context, exec *sdk.Executor, vmEntity, deployN
 // plugin-side self-load call. A single HostBuild-kind stub cannot canned-reply a multi-leg loader
 // path (loaderkit.LoadUnifiedViaExecutor dispatches loader-threaded/-bootstrap/-walk/-materialize,
 // then InvokeProvider(kind,"local") — sdk/loaderkit/load_via_executor.go), mirroring
-// candy/plugin-deploy-pod's loadProjectVolume/saveFleet stub pattern (R3) —
+// candy/plugin-deploy-pod's loadProjectVolume/saveDeploy stub pattern (R3) —
 // k3s_post_forwards_test.go stubs this directly instead of faking the full loader chain.
 var resolveVmEntityForForwards = loaderkit.ResolveVmEntityViaExecutor
 

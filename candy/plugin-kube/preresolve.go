@@ -55,7 +55,7 @@ func invokeKubernetesPreresolve(ctx context.Context, req *pb.InvokeRequest) (*pb
 		// Resolve the merged deploy tree PLUGIN-SIDE (K-wave W3a A3-phase-2: the former
 		// "deploy-entity-resolve" TreeJSON round-trip was dead weight — the tree is already a live
 		// Go value here, so this is a direct map lookup, not a host seam call). The enclosing
-		// OpDeployDispatch already connected the deployment's plugins (command:fleet's
+		// OpDeployDispatch already connected the deployment's plugins (command:deploy's
 		// resolveTreeViaLoader), so this reuses that connect (no re-dial mid-Invoke).
 		tree, terr := loaderkit.ResolveMergedTreeViaExecutor(ctx, exec, p.Dir)
 		if terr != nil {
@@ -131,7 +131,7 @@ func invokeKubernetesPreresolve(ctx context.Context, req *pb.InvokeRequest) (*pb
 }
 
 // hostProjectDir resolves the project directory via the "deploy-plugins-connect" host seam — the
-// SAME preamble command:fleet's resolveTreeViaLoader runs (it returns os.Getwd() host-side + connects
+// SAME preamble command:deploy's resolveTreeViaLoader runs (it returns os.Getwd() host-side + connects
 // the deployment's plugins). Used by a leg that has no dispatch-threaded p.Dir of its own (the
 // post-provision k3s hint handler, k3s_post.go's deployVMForwards) to feed the plugin-side
 // self-load helpers (loaderkit.ResolveMergedTreeViaExecutor / Resolve{Kubernetes,Vm}EntityViaExecutor).
