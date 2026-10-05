@@ -136,7 +136,7 @@ func rewriteK3sServerToForward(ctx context.Context, exec *sdk.Executor, retrieve
 // port-forward LEDGER read routes through the SIBLING "config-resolve" HostBuild
 // seam (candy/plugin-vm's own hostConfigResolve calls the identical seam for its
 // OWN VmState reuse) — NEVER a direct deploykit.LoadDeployConfigForRead call: that
-// helper's LoadFleetConfig degrades to an EMPTY config whenever
+// helper's LoadDeployConfig degrades to an EMPTY config whenever
 // deploykit.DeployStateHost is nil, which it ALWAYS is inside this plugin's own
 // out-of-process (candy/plugin-kube is served over go-plugin gRPC, never
 // compiled-in) — DeployStateHost is wired ONLY by charly-core's own init(), so a

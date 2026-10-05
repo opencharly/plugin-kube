@@ -40,7 +40,7 @@ import (
 //   - `kubectl apply -k <overlay>` against the operator's kubeconfig (merged by
 //     K3sPostProvision for a k3s cluster) — the apply IS the deploy;
 //   - return the teardown op the host records in the ledger and replays at
-//     `charly fleet del` (`kubectl delete -k` + remove the generated tree) —
+//     `charly deploy del` (`kubectl delete -k` + remove the generated tree) —
 //     record-and-replay, the external-deploy lifecycle.
 //
 // The plugin runs as a HOST subprocess (LocalTransport), so it reads the generated
@@ -86,7 +86,7 @@ func resolveWorkloadImage(node *spec.Deploy, name, engine string) (imageRef stri
 
 // kubernetesTeardownProbeTimeout bounds the reachability probe the teardown runs before it attempts
 // `kubectl delete`. Named + bounded rather than an untimed call: a wedged API server must not
-// hang a `charly fleet del`, and an unreachable one must not print a connection error on
+// hang a `charly deploy del`, and an unreachable one must not print a connection error on
 // every teardown of a vm-hosted cluster (whose API dies with the VM).
 const kubernetesTeardownProbeTimeout = "5s"
 
@@ -127,7 +127,7 @@ func invokeDeployKubernetes(req *pb.InvokeRequest) (*pb.InvokeReply, error) {
 		return nil, fmt.Errorf("deploy:kubernetes: apply overlay %s: %w\n%s", kv.OverlayPath, aerr, strings.TrimSpace(out))
 	}
 
-	// Teardown, recorded in the ledger and replayed at `charly fleet del`
+	// Teardown, recorded in the ledger and replayed at `charly deploy del`
 	// (record-and-replay). kubectl reads the operator's ~/.kube/config (no sudo) → ScopeUser.
 	//
 	// The cluster is routinely ALREADY GONE by teardown time: a vm-hosted k3s deploy destroys
