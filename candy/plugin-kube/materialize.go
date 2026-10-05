@@ -27,7 +27,7 @@ import (
 //
 // Two callers reach materializeKustomize: deploy:kubernetes's own OpPreresolve (preresolve.go, which
 // already holds a live `exec` from its own Invoke) and, via the deploy:kubernetes OpEmit branch
-// (provider.go/invokeKubernetesMaterialize), the host's source-less `charly fleet from-box
+// (provider.go/invokeKubernetesMaterialize), the host's source-less `charly deploy from-box
 // --cluster <name>` path, which threads a throwaway kit.ShellExecutor{} purely
 // to stand up the InvokeWithExecutor broker this plugin needs to reach k8sgen/egress — no venue
 // carries any real meaning for this deploy-config-generation-only entry point (R3 dedup: ONE

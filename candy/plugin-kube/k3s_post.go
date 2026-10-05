@@ -136,7 +136,7 @@ func rewriteK3sServerToForward(ctx context.Context, exec *sdk.Executor, retrieve
 // port-forward LEDGER read routes through the SIBLING "config-resolve" HostBuild
 // seam (candy/plugin-vm's own hostConfigResolve calls the identical seam for its
 // OWN VmState reuse) — NEVER a direct deploykit.LoadDeployConfigForRead call: that
-// helper's LoadFleetConfig degrades to an EMPTY config whenever
+// helper's LoadDeployConfig degrades to an EMPTY config whenever
 // deploykit.DeployStateHost is nil, which it ALWAYS is inside this plugin's own
 // out-of-process (candy/plugin-kube is served over go-plugin gRPC, never
 // compiled-in) — DeployStateHost is wired ONLY by charly-core's own init(), so a
@@ -199,7 +199,7 @@ func deployVMForwards(ctx context.Context, exec *sdk.Executor, vmEntity, deployN
 // plugin-side self-load call. A single HostBuild-kind stub cannot canned-reply a multi-leg loader
 // path (loaderkit.LoadUnifiedViaExecutor dispatches loader-threaded/-bootstrap/-walk/-materialize,
 // then InvokeProvider(kind,"local") — sdk/loaderkit/load_via_executor.go), mirroring
-// candy/plugin-deploy-pod's loadProjectVolume/saveFleet stub pattern (R3) —
+// candy/plugin-deploy-pod's loadProjectVolume/saveDeploy stub pattern (R3) —
 // k3s_post_forwards_test.go stubs this directly instead of faking the full loader chain.
 var resolveVmEntityForForwards = loaderkit.ResolveVmEntityViaExecutor
 
