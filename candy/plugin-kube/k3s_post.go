@@ -155,13 +155,15 @@ func deployVMForwards(ctx context.Context, exec *sdk.Executor, vmEntity, deployN
 		// no VM spec to consult, so no forwards.
 		return nil, nil
 	}
-	// Resolve the project dir via the "deploy-plugins-connect" seam (os.Getwd() host-side, the
-	// SAME dir the host loader used) — needed below for the kind:vm entity self-load. A VM
+	// Resolve the project dir via the shared seam (loaderkit.ProjectDirViaExecutor: os.Getwd()
+	// host-side, the SAME dir the host loader used) — needed below for the kind:vm entity
+	// self-load. This plugin carried its own copy of that seam until opencharly/sdk#338 hoisted
+	// it into the SDK; the helper's doc is the source of truth. A VM
 	// deploy that carries port_forwards MUST resolve its entity, so this is LOUD: silently
 	// degrading to "" (as it once did) made rewriteK3sServerToForward no-op and merged a
 	// kubeconfig still pointing at the guest-local 127.0.0.1:6443 — a dead context with no
 	// error, exactly the silent-degradation class the deploy-state READ path already guards.
-	dir, derr := hostProjectDir(ctx, exec, deployName)
+	dir, derr := loaderkit.ProjectDirViaExecutor(ctx, exec, deployName)
 	if derr != nil {
 		return nil, fmt.Errorf("resolving the project dir for %q (needed to resolve vm entity %q): %w", deployName, vmEntity, derr)
 	}
