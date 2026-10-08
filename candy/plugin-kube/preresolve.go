@@ -129,24 +129,3 @@ func invokeKubernetesPreresolve(ctx context.Context, req *pb.InvokeRequest) (*pb
 	}
 	return &pb.InvokeReply{ResultJson: out}, nil
 }
-
-// hostProjectDir resolves the project directory via the "deploy-plugins-connect" host seam — the
-// SAME preamble command:deploy's resolveTreeViaLoader runs (it returns os.Getwd() host-side + connects
-// the deployment's plugins). Used by a leg that has no dispatch-threaded p.Dir of its own (the
-// post-provision k3s hint handler, k3s_post.go's deployVMForwards) to feed the plugin-side
-// self-load helpers (loaderkit.ResolveMergedTreeViaExecutor / Resolve{Kubernetes,Vm}EntityViaExecutor).
-func hostProjectDir(ctx context.Context, exec *sdk.Executor, deployName string) (string, error) {
-	reqJSON, err := json.Marshal(spec.DeployPluginsConnectRequest{Path: deployName})
-	if err != nil {
-		return "", err
-	}
-	resJSON, err := exec.HostBuild(ctx, "deploy-plugins-connect", reqJSON)
-	if err != nil {
-		return "", err
-	}
-	var reply spec.DeployPluginsConnectReply
-	if err := json.Unmarshal(resJSON, &reply); err != nil {
-		return "", err
-	}
-	return reply.Dir, nil
-}
