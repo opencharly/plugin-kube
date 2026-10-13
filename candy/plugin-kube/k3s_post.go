@@ -100,7 +100,9 @@ func rewriteK3sServerToForward(ctx context.Context, exec *sdk.Executor, retrieve
 		return err
 	}
 	if len(forwards) == 0 {
-		return nil
+		return fmt.Errorf("rewriteK3sServerToForward: deploy %s resolved NO host:guest forwards on vm entity %q, "+
+			"so the retrieved kubeconfig's guest-local server cannot be rewritten to a host-reachable one — the "+
+			"merged context will be unreachable (the ledger lookup keys on the per-deploy domain identity)", deployName, vmEntity)
 	}
 	guestToHost := map[string]string{}
 	for _, pf := range forwards {
@@ -114,7 +116,9 @@ func rewriteK3sServerToForward(ctx context.Context, exec *sdk.Executor, retrieve
 	}
 	out := deploykit.RewriteServerPorts(string(data), guestToHost)
 	if out == string(data) {
-		return nil
+		return fmt.Errorf("rewriteK3sServerToForward: deploy %s: the rewrite matched nothing — the retrieved "+
+			"kubeconfig's server port is not among the resolved forwards %v, so the merged context keeps the "+
+			"guest-local URL and will be unreachable", deployName, forwards)
 	}
 	return os.WriteFile(retrievedPath, []byte(out), 0o600)
 }
