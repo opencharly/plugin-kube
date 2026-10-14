@@ -3,8 +3,10 @@ package kube
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/opencharly/sdk"
@@ -114,6 +116,23 @@ func rewriteK3sServerToForward(ctx context.Context, exec *sdk.Executor, retrieve
 	}
 	out := deploykit.RewriteServerPorts(string(data), guestToHost)
 	if out == string(data) {
+		// LOUD, for the same reason the sibling exit in deployVMForwards is loud: this used to be a bare
+		// `return nil`, and a rewrite that declines to act is indistinguishable from one that was never
+		// asked. The operator sees a host-side probe refused on the guest-local port with nothing anywhere
+		// stating that the kubeconfig was left unrewritten (opencharly/plugin-kube#22).
+		//
+		// It stays a WARNING rather than an error because the function's own contract says a no-op is
+		// legitimate: "a bare-metal / already-host-reachable k3s needs no rewrite". What is not legitimate
+		// is not saying which case this is.
+		guests := make([]string, 0, len(guestToHost))
+		for g := range guestToHost {
+			guests = append(guests, g)
+		}
+		sort.Strings(guests)
+		slog.Warn("k3s kubeconfig server left on its guest-local port: the rewrite matched no forward",
+			"kubeconfig", retrievedPath,
+			"forwarded_guest_ports", strings.Join(guests, ","),
+			"hint", "a host-side kube: probe will dial the guest port unless network.port_forwards declares it")
 		return nil
 	}
 	return os.WriteFile(retrievedPath, []byte(out), 0o600)
