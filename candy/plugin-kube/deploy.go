@@ -118,7 +118,7 @@ func invokeDeployKubernetes(req *pb.InvokeRequest) (*pb.InvokeReply, error) {
 	// I/O the plugin owns (this plugin generated + egress-validated the tree, on the host). The
 	// kube_context (from the kind:kubernetes template) targets THIS cluster explicitly via
 	// `kubectl --context`, never the ambient current-context.
-	ctxArgs := kubectlContextArgs(kv.KubeContext)
+	ctxArgs := kubectlClusterArgs(kv.Kubeconfig, kv.KubeContext)
 	hasHelm, helmNamespaces, herr := overlayHelmInfo(kv.OverlayPath)
 	if herr != nil {
 		return nil, fmt.Errorf("deploy:kubernetes: read overlay kustomization: %w", herr)
@@ -139,7 +139,7 @@ func invokeDeployKubernetes(req *pb.InvokeRequest) (*pb.InvokeReply, error) {
 	// probe so a wedged API server cannot hang teardown.
 	tree := shellSingleQuote(kubernetesTreeRoot(kv))
 	overlay := shellSingleQuote(kv.OverlayPath)
-	ctxPrefix := kubectlContextPrefix(kv.KubeContext)
+	ctxPrefix := kubectlClusterPrefix(kv.Kubeconfig, kv.KubeContext)
 	// The delete mirrors the apply: a helmCharts overlay must be rendered with
 	// `kubectl kustomize --enable-helm` first (`kubectl delete -k` cannot enable the
 	// transformer), then deleted from the rendered stream. The namespaces the
@@ -164,22 +164,35 @@ func invokeDeployKubernetes(req *pb.InvokeRequest) (*pb.InvokeReply, error) {
 	return sdk.BuildDeployReply(reverseOps, "plugin-kube", deployKubernetesVersion)
 }
 
-// kubectlContextArgs returns the `--context <ctx>` argv prefix (empty when no
-// context → kubectl uses the current-context).
-func kubectlContextArgs(ctx string) []string {
-	if ctx == "" {
-		return nil
+// kubectlClusterArgs returns the `--kubeconfig <file> --context <ctx>` argv prefix. Each half is
+// omitted when unset: no kubeconfig → kubectl reads the ambient $KUBECONFIG / ~/.kube/config; no
+// context → the kubeconfig's own current-context. The file is what addresses an
+// externally-managed cluster; the context alone cannot, because the file it names is not the
+// ambient one (opencharly/spec#224, opencharly/plugin-kube#23). ONE builder serves the apply, the
+// delete and both cluster substrates (R2) — a kindcluster passes an empty file, its context being
+// kind's own locally generated kubeconfig.
+func kubectlClusterArgs(kubeconfig, ctx string) []string {
+	var args []string
+	if kubeconfig != "" {
+		args = append(args, "--kubeconfig", kubeconfig)
 	}
-	return []string{"--context", ctx}
+	if ctx != "" {
+		args = append(args, "--context", ctx)
+	}
+	return args
 }
 
-// kubectlContextPrefix returns the shell-quoted `--context <ctx> ` prefix for the
-// recorded teardown script (empty when no context).
-func kubectlContextPrefix(ctx string) string {
-	if ctx == "" {
-		return ""
+// kubectlClusterPrefix is kubectlClusterArgs for the RECORDED teardown script, where the argv is a
+// shell string and every value is single-quoted.
+func kubectlClusterPrefix(kubeconfig, ctx string) string {
+	prefix := ""
+	if kubeconfig != "" {
+		prefix += "--kubeconfig " + shellSingleQuote(kubeconfig) + " "
 	}
-	return "--context " + shellSingleQuote(ctx) + " "
+	if ctx != "" {
+		prefix += "--context " + shellSingleQuote(ctx) + " "
+	}
+	return prefix
 }
 
 // kubernetesTreeRoot returns the generated tree root to remove at teardown: the host

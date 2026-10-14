@@ -32,7 +32,7 @@ func TestKindSaveImageArchive(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create temp: %v", err)
 	}
-	defer os.Remove(f.Name())
+	defer func() { _ = os.Remove(f.Name()) }()
 	if err := f.Close(); err != nil {
 		t.Fatalf("close temp: %v", err)
 	}
@@ -54,7 +54,7 @@ func TestKindSaveImageArchive(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open archive: %v", err)
 	}
-	defer fh.Close()
+	defer func() { _ = fh.Close() }()
 	tr := tar.NewReader(fh)
 	for {
 		hdr, err := tr.Next()
