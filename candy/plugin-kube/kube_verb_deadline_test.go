@@ -97,3 +97,32 @@ func TestVerbHandsTheCallersDeadlineToItsClient(t *testing.T) {
 		})
 	}
 }
+
+// The per-method defaults live in ONE table, and a step's own `timeout:` still overrides
+// them. Asserted directly, because the alternative — driving a waiting method through the
+// dispatcher — would spin to its full budget inside a unit test.
+//
+// This FAILS if any default drifts: a one-shot probe that waits on ServiceLB gets a
+// shorter budget than a method that walks the k3s addon stack, and neither may silently
+// become the generic one.
+func TestOpTimeoutIsOneTableWithPerMethodDefaults(t *testing.T) {
+	for _, tc := range []struct {
+		method string
+		step   string
+		want   time.Duration
+	}{
+		{method: "pods", want: 120 * time.Second},
+		{method: "addons", want: 180 * time.Second},
+		{method: "lb-external-ip", want: 60 * time.Second},
+		{method: "wait-nodes", want: 120 * time.Second},
+		{method: "pods", step: "45s", want: 45 * time.Second},
+		{method: "addons", step: "600s", want: 600 * time.Second},
+	} {
+		if got := opTimeout(tc.method, &spec.Op{Timeout: tc.step}); got != tc.want {
+			t.Errorf("opTimeout(%q, timeout=%q) = %s, want %s", tc.method, tc.step, got, tc.want)
+		}
+	}
+	if got := opTimeout("pods", nil); got != defaultOpTimeout {
+		t.Errorf("opTimeout with a nil op = %s, want the generic default %s", got, defaultOpTimeout)
+	}
+}

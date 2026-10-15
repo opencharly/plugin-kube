@@ -63,7 +63,7 @@ func dispatch(ctx context.Context, conn *clusterConn, op *spec.Op, in *params.Ku
 	// whichever is shorter wins. Every client call below inherits this context, so
 	// a hung dial fails fast, is named, and can be cancelled — instead of outliving
 	// the host's RPC deadline with the plugin still blocked on it.
-	ctx, cancel := context.WithTimeout(ctx, opTimeout(op))
+	ctx, cancel := context.WithTimeout(ctx, opTimeout(method, op))
 	defer cancel()
 	switch method {
 	case "nodes":
@@ -133,7 +133,7 @@ func runWaitNodes(ctx context.Context, conn *clusterConn, op *spec.Op, in *param
 	if count <= 0 {
 		count = 1
 	}
-	deadline := time.Now().Add(opTimeout(op))
+	deadline := time.Now().Add(opTimeout("wait-nodes", op))
 	for {
 		list, err := client.Resource(gvrNodes).List(ctx, metav1.ListOptions{})
 		if err != nil {
@@ -214,7 +214,7 @@ func runWaitReady(ctx context.Context, conn *clusterConn, op *spec.Op, in *param
 	if ns == "" {
 		ns = "default"
 	}
-	deadline := time.Now().Add(opTimeout(op))
+	deadline := time.Now().Add(opTimeout("wait-ready", op))
 	for {
 		u, err := client.Resource(gvr).Namespace(ns).Get(ctx, in.Name, metav1.GetOptions{})
 		if err == nil && workloadReady(u) {
@@ -397,7 +397,7 @@ func runLbExternalIP(ctx context.Context, conn *clusterConn, op *spec.Op, in *pa
 	if err != nil {
 		return "", err
 	}
-	deadline := time.Now().Add(parseTimeout(op.Timeout, 60*time.Second))
+	deadline := time.Now().Add(opTimeout("lb-external-ip", op))
 	for {
 		svc, err := client.Resource(gvrServices).Namespace(in.Namespace).Get(ctx, in.Name, metav1.GetOptions{})
 		if err != nil && !apierrors.IsNotFound(err) {
@@ -442,7 +442,7 @@ func runAddons(ctx context.Context, conn *clusterConn, op *spec.Op, in *params.K
 	if ns == "" {
 		ns = "kube-system"
 	}
-	deadline := time.Now().Add(parseTimeout(op.Timeout, 180*time.Second))
+	deadline := time.Now().Add(opTimeout("addons", op))
 	var b strings.Builder
 	for _, addon := range k3sAddons {
 		gvr, _ := kindToGVR(addon.Kind)

@@ -43,18 +43,31 @@ func connFromInput(in *params.KubeInput) *clusterConn {
 	return &clusterConn{kubeconfig: in.Kubeconfig, context: in.KubeContext}
 }
 
-// defaultOpTimeout is the deadline a kube op gets when the step names none. It is
-// the ONE source of that number: the dispatcher bounds the whole op with it, and
-// the wait loops derive their own deadline from the same call.
+// defaultOpTimeout is the deadline a kube op gets when neither the step nor the
+// method names one.
 const defaultOpTimeout = 120 * time.Second
 
-// opTimeout is the deadline a kube op gets: the step's `timeout:`, else
-// defaultOpTimeout.
-func opTimeout(op *spec.Op) time.Duration {
-	if op == nil {
-		return defaultOpTimeout
+// methodTimeouts are the per-method defaults, the only place they are written. A
+// waiting method's own budget differs from a one-shot probe's by design: `addons`
+// walks the k3s addon stack, `lb-external-ip` waits on ServiceLB.
+var methodTimeouts = map[string]time.Duration{
+	"lb-external-ip": 60 * time.Second,
+	"addons":         180 * time.Second,
+}
+
+// opTimeout is THE deadline of a kube op: the step's `timeout:` wins, else the
+// method's own default, else defaultOpTimeout. One helper for every deadline in
+// this plugin — the dispatcher's op bound and each wait loop's budget both call it,
+// so a step that names no timeout is still bounded by exactly one number.
+func opTimeout(method string, op *spec.Op) time.Duration {
+	def, ok := methodTimeouts[method]
+	if !ok {
+		def = defaultOpTimeout
 	}
-	return parseTimeout(op.Timeout, defaultOpTimeout)
+	if op == nil {
+		return def
+	}
+	return parseTimeout(op.Timeout, def)
 }
 
 // restConfig resolves the cluster connection to a rest.Config. Resolution:
