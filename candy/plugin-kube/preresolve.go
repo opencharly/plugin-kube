@@ -117,10 +117,15 @@ func invokeKubernetesPreresolve(ctx context.Context, req *pb.InvokeRequest) (*pb
 		return nil, fmt.Errorf("deploy %q: generating kustomize: %w", p.Name, err)
 	}
 
+	// kubeconfig + kube_context both ride the venue: the context selects, the file says WHICH
+	// kubeconfig it means. An externally-managed cluster is addressed by a per-cluster file that
+	// the ambient $KUBECONFIG / ~/.kube/config never names, so a context-only payload dialled
+	// whatever cluster the current-context happened to hold (opencharly/plugin-kube#23).
 	venue := spec.KubernetesDeployVenue{
 		OverlayPath: genReply.OverlayPath,
 		TreeRoot:    filepath.Clean(genReply.TreeRoot),
 		KubeContext: cluster.KubeconfigContext,
+		Kubeconfig:  cluster.Kubeconfig,
 		DeployName:  p.Name,
 	}
 	out, err := json.Marshal(venue)

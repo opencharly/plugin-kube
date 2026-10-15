@@ -23,8 +23,15 @@ plugin-kube:
             this plugin's own #KubeInput — and dispatches through the provider
             registry exactly like a built-in (ResolveVerb → grpcProvider →
             invokeVerbProvider hands it the full desugared #Op; this plugin
-            self-resolves any `cluster:` profile to a concrete kube_context itself
-            now, K-wave W3a A3-phase-2 — no host pre-resolve); `target: kubernetes`
+            self-resolves any `cluster:` profile to that template's kubeconfig
+            CONTEXT **and** its kubeconfig FILE, both — via
+            loaderkit.ResolveClusterViaExecutor, the mechanism's home in the sdk
+            (the context-only copy this plugin used to keep is deleted, not
+            taught the new field), K-wave W3a A3-phase-2 — no host pre-resolve);
+            the FILE is what addresses an externally-managed cluster, whose
+            per-cluster kubeconfig the ambient $KUBECONFIG never names, and the
+            deploy path carries it too (the venue's `kubeconfig` field, applied
+            as `kubectl --kubeconfig` beside `--context`); `target: kubernetes`
             resolves to this
             plugin's deploy:kubernetes provider over the E3b reverse channel — THIS
             plugin's own preresolve.go (F6, FINAL/K5 unit 6a; dispatched via the

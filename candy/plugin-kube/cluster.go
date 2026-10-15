@@ -15,6 +15,7 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 
 	"github.com/opencharly/plugin-kube/candy/plugin-kube/params"
+	"github.com/opencharly/spec/spec"
 )
 
 // cluster.go holds the cluster connection + the shared client-go helpers moved
@@ -32,10 +33,41 @@ import (
 type clusterConn struct {
 	kubeconfig string // input kubeconfig — host path (empty → $KUBECONFIG then ~/.kube/config)
 	context    string // input kube_context — kubeconfig context (empty → current-context)
+
+	// clientFunc, when set, replaces dynamicClient() entirely. A test seam: the
+	// real path resolves a kubeconfig, which a unit test has no cluster for.
+	clientFunc func() (dynamic.Interface, error)
 }
 
 func connFromInput(in *params.KubeInput) *clusterConn {
 	return &clusterConn{kubeconfig: in.Kubeconfig, context: in.KubeContext}
+}
+
+// defaultOpTimeout is the deadline a kube op gets when neither the step nor the
+// method names one.
+const defaultOpTimeout = 120 * time.Second
+
+// methodTimeouts are the per-method defaults, the only place they are written. A
+// waiting method's own budget differs from a one-shot probe's by design: `addons`
+// walks the k3s addon stack, `lb-external-ip` waits on ServiceLB.
+var methodTimeouts = map[string]time.Duration{
+	"lb-external-ip": 60 * time.Second,
+	"addons":         180 * time.Second,
+}
+
+// opTimeout is THE deadline of a kube op: the step's `timeout:` wins, else the
+// method's own default, else defaultOpTimeout. One helper for every deadline in
+// this plugin — the dispatcher's op bound and each wait loop's budget both call it,
+// so a step that names no timeout is still bounded by exactly one number.
+func opTimeout(method string, op *spec.Op) time.Duration {
+	def, ok := methodTimeouts[method]
+	if !ok {
+		def = defaultOpTimeout
+	}
+	if op == nil {
+		return def
+	}
+	return parseTimeout(op.Timeout, def)
 }
 
 // restConfig resolves the cluster connection to a rest.Config. Resolution:
@@ -91,6 +123,9 @@ func (c *clusterConn) restConfig() (*rest.Config, error) {
 }
 
 func (c *clusterConn) dynamicClient() (dynamic.Interface, error) {
+	if c.clientFunc != nil {
+		return c.clientFunc()
+	}
 	cfg, err := c.restConfig()
 	if err != nil {
 		return nil, err

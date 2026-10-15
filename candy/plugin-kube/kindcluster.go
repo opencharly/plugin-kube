@@ -352,9 +352,9 @@ func invokeDeployKindcluster(req *pb.InvokeRequest) (*pb.InvokeReply, error) {
 	if err != nil {
 		return nil, fmt.Errorf("deploy:kindcluster: create config file: %w", err)
 	}
-	defer os.Remove(cfgFile.Name())
+	defer func() { _ = os.Remove(cfgFile.Name()) }()
 	if _, werr := cfgFile.Write(kv.ClusterConfig); werr != nil {
-		cfgFile.Close()
+		_ = cfgFile.Close()
 		return nil, fmt.Errorf("deploy:kindcluster: write config: %w", werr)
 	}
 	if cerr := cfgFile.Close(); cerr != nil {
@@ -379,7 +379,7 @@ func invokeDeployKindcluster(req *pb.InvokeRequest) (*pb.InvokeReply, error) {
 				return nil, lerr
 			}
 		}
-		ctxArgs := kubectlContextArgs(kv.KubeContext)
+		ctxArgs := kubectlClusterArgs("", kv.KubeContext)
 		hasHelm, helmNamespaces, herr := overlayHelmInfo(kv.OverlayPath)
 		if herr != nil {
 			return nil, fmt.Errorf("deploy:kindcluster: read overlay kustomization: %w", herr)
@@ -502,7 +502,7 @@ func kindLoadImage(provider, cluster, imageRef string) error {
 	if err != nil {
 		return fmt.Errorf("deploy:kindcluster: create image archive: %w", err)
 	}
-	defer os.Remove(archive.Name())
+	defer func() { _ = os.Remove(archive.Name()) }()
 	if cerr := archive.Close(); cerr != nil {
 		return fmt.Errorf("deploy:kindcluster: close image archive: %w", cerr)
 	}

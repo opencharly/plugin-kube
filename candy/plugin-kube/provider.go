@@ -132,48 +132,42 @@ func (provider) Invoke(ctx context.Context, req *pb.InvokeRequest) (*pb.InvokeRe
 		if err != nil {
 			return sdk.ResultJSON("fail", fmt.Sprintf("kube: %s: %v", method, err))
 		}
-		kctx, rerr := resolveKubeVerbCluster(ctx, exec, in.Cluster)
+		view, rerr := resolveVerbCluster(ctx, exec, in.Cluster)
 		if rerr != nil {
 			return sdk.ResultJSON("fail", fmt.Sprintf("kube: %s: %v (refusing to fall back to the kubeconfig current-context)", method, rerr))
 		}
-		if kctx != "" {
-			in.KubeContext = kctx
-		}
+		applyResolvedCluster(&in, view)
 	}
 
 	conn := connFromInput(&in)
-	out, runErr := dispatch(conn, &op, &in)
+	out, runErr := dispatch(ctx, conn, &op, &in)
 
 	// The shared exit/stdout/stderr verdict pipeline (R3). kube produces no artifact.
 	return sdk.VerbVerdict("kube", method, out, runErr, &op, false)
 }
 
-// resolveKubeVerbCluster resolves a `kube:` step's `cluster: <profile>` to a concrete kubeconfig
-// context by self-loading the project PLUGIN-SIDE (loaderkit.ResolveKubernetesEntityViaExecutor,
-// the SAME helper candy/plugin-kubevirt uses). The author NAMED a cluster, so a resolve FAILURE
-// is a real failure and is RETURNED (never silently degraded to the kubeconfig current-context,
-// which on an empty current-context produced the bare `no kubeconfig context selected`). A
-// legitimate miss — the profile resolves but carries no context — returns ("", nil) so the
-// caller keeps its current-context fallback (opencharly/plugin-kube#15).
-func resolveKubeVerbCluster(ctx context.Context, exec *sdk.Executor, cluster string) (string, error) {
-	if exec == nil {
-		return "", fmt.Errorf("resolving cluster %q: no executor available", cluster)
-	}
-	dir, derr := hostProjectDir(ctx, exec, "")
-	if derr != nil {
-		return "", fmt.Errorf("resolving the project dir to resolve cluster %q: %w", cluster, derr)
-	}
-	view, verr := resolveKubernetesEntity(ctx, exec, dir, cluster)
-	if verr != nil {
-		return "", fmt.Errorf("resolving cluster %q: %w", cluster, verr)
-	}
+// applyResolvedCluster merges a resolved cluster template into the step's connection inputs.
+// Both halves are taken, each only when the template carries one: the CONTEXT selects inside the
+// kubeconfig, and the FILE says which kubeconfig — an externally-managed cluster is addressed by a
+// per-cluster file that the ambient $KUBECONFIG / ~/.kube/config never names (opencharly/spec#224,
+// opencharly/plugin-kube#23). An explicitly authored `kubeconfig:` on the step always wins; a
+// legitimate miss (nil view) leaves the caller's own fallback untouched.
+func applyResolvedCluster(in *params.KubeInput, view *spec.ResolvedKubernetes) {
 	if view == nil {
-		return "", nil
+		return
 	}
-	return view.KubeconfigContext, nil
+	if view.KubeconfigContext != "" {
+		in.KubeContext = view.KubeconfigContext
+	}
+	if view.Kubeconfig != "" && in.Kubeconfig == "" {
+		in.Kubeconfig = view.Kubeconfig
+	}
 }
 
-// resolveKubernetesEntity is a package var (test seam) wrapping
-// loaderkit.ResolveKubernetesEntityViaExecutor — the same pattern k3s_post_forwards_test.go's
-// resolver vars use, so a unit test can drive resolveKubeVerbCluster without a live project.
-var resolveKubernetesEntity = loaderkit.ResolveKubernetesEntityViaExecutor
+// resolveVerbCluster is this plugin's ONE cluster resolution, delegated to its home in the sdk
+// (loaderkit.ResolveClusterViaExecutor, opencharly/sdk#376). The local copy that used to live here
+// returned the context ONLY, so it could not carry a template's kubeconfig file; it was the second
+// occurrence of the mechanism the sdk hoisted (opencharly/sdk#338), and this change deletes it
+// rather than teaching it the new field (R2/R5). The package var is the test seam, the pattern the
+// k3s_post resolvers use.
+var resolveVerbCluster = loaderkit.ResolveClusterViaExecutor
