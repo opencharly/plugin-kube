@@ -140,7 +140,7 @@ func (provider) Invoke(ctx context.Context, req *pb.InvokeRequest) (*pb.InvokeRe
 	}
 
 	conn := connFromInput(&in)
-	out, runErr := dispatch(conn, &op, &in)
+	out, runErr := dispatch(ctx, conn, &op, &in)
 
 	// The shared exit/stdout/stderr verdict pipeline (R3). kube produces no artifact.
 	return sdk.VerbVerdict("kube", method, out, runErr, &op, false)

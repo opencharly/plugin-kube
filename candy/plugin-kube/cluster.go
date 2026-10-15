@@ -15,6 +15,7 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 
 	"github.com/opencharly/plugin-kube/candy/plugin-kube/params"
+	"github.com/opencharly/spec/spec"
 )
 
 // cluster.go holds the cluster connection + the shared client-go helpers moved
@@ -32,10 +33,28 @@ import (
 type clusterConn struct {
 	kubeconfig string // input kubeconfig — host path (empty → $KUBECONFIG then ~/.kube/config)
 	context    string // input kube_context — kubeconfig context (empty → current-context)
+
+	// clientFunc, when set, replaces dynamicClient() entirely. A test seam: the
+	// real path resolves a kubeconfig, which a unit test has no cluster for.
+	clientFunc func() (dynamic.Interface, error)
 }
 
 func connFromInput(in *params.KubeInput) *clusterConn {
 	return &clusterConn{kubeconfig: in.Kubeconfig, context: in.KubeContext}
+}
+
+// defaultOpTimeout is the deadline a kube op gets when the step names none. It is
+// the ONE source of that number: the dispatcher bounds the whole op with it, and
+// the wait loops derive their own deadline from the same call.
+const defaultOpTimeout = 120 * time.Second
+
+// opTimeout is the deadline a kube op gets: the step's `timeout:`, else
+// defaultOpTimeout.
+func opTimeout(op *spec.Op) time.Duration {
+	if op == nil {
+		return defaultOpTimeout
+	}
+	return parseTimeout(op.Timeout, defaultOpTimeout)
 }
 
 // restConfig resolves the cluster connection to a rest.Config. Resolution:
@@ -91,6 +110,9 @@ func (c *clusterConn) restConfig() (*rest.Config, error) {
 }
 
 func (c *clusterConn) dynamicClient() (dynamic.Interface, error) {
+	if c.clientFunc != nil {
+		return c.clientFunc()
+	}
 	cfg, err := c.restConfig()
 	if err != nil {
 		return nil, err
