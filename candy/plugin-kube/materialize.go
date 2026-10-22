@@ -19,7 +19,7 @@ import (
 // GenerateKubernetesKustomize) now runs HERE. No host round trip is required: candy/plugin-k8sgen's
 // GENERATOR is pure (no disk I/O, no egress — verb:k8sgen/OpEmit) and reachable peer-to-peer via
 // exec.InvokeProvider; this plugin is a same-host subprocess with direct local disk access
-// (plugin.go's own doc — same as its podman-storage access for image capabilities), so it does
+// (plugin.go's own doc — same as its local-engine-storage access for image capabilities), so it does
 // the MkdirAll/WriteFile/ReadFile itself; egress validation is likewise reachable peer-to-peer via
 // exec.InvokeProvider(verb:egress, OpValidate) — the SAME resolve+Invoke shape
 // candy/plugin-fleet/egress.go's ValidateEgressValue ran against the core-private registry, just

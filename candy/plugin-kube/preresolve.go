@@ -18,7 +18,7 @@ import (
 // Capabilities, GENERATES the egress-validated Kustomize tree, and returns a
 // spec.KubernetesDeployVenue carrying the overlay path — the SAME payload the host used to build
 // directly, now assembled here. The image-ref + capabilities resolution is pure sdk/kit +
-// sdk/deploykit (this plugin runs as a host subprocess with direct local podman storage
+// sdk/deploykit (this plugin runs as a host subprocess with direct local engine storage
 // access, per plugin.go's own doc). The cluster/node lookup self-loads the project PLUGIN-SIDE
 // now (K-wave W3a A3-phase-2: loaderkit.ResolveMergedTreeViaExecutor /
 // ResolveKubernetesEntityViaExecutor, unblocked by W1's LoadUnifiedViaExecutor) — the former
@@ -91,7 +91,7 @@ func invokeKubernetesPreresolve(ctx context.Context, req *pb.InvokeRequest) (*pb
 	}
 
 	// Resolve image + capabilities — pure sdk/kit + sdk/deploykit, no LoadUnified needed (this
-	// plugin runs as a host subprocess with direct local podman storage access). The ONE shared
+	// plugin runs as a host subprocess with direct local engine storage access). The ONE shared
 	// resolution lives in resolveWorkloadImage (R3) — the kindcluster leg uses it too.
 	rt, err := kit.ResolveRuntime()
 	if err != nil {

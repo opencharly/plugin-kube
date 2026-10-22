@@ -14,8 +14,10 @@ package kube
 // cluster on the operator's container engine. kind creates node containers on that
 // engine, so:
 //
-//   - the engine is charly's own engine word (podman/docker/nerdctl), mapped 1:1 to
-//     kind's KIND_EXPERIMENTAL_PROVIDER — no separate selector;
+//   - the engine is charly's own engine word (podman/docker/containerd), mapped to
+//     kind's KIND_EXPERIMENTAL_PROVIDER — no separate selector. kind has no containerd
+//     provider, so the word is mapped to its CLI (containerd → nerdctl) from the spec
+//     capability data; an unsupported word is REFUSED, never silently defaulted;
 //   - the kubeconfig is written by kind into the operator's ~/.kube/config under the
 //     context `kind-<name>` with the real API host port kind allocated, so there is
 //     NO guest-forward rewrite (the k3s complication simply does not arise);
@@ -139,7 +141,9 @@ func invokeKindclusterPreresolve(ctx context.Context, req *pb.InvokeRequest) (*p
 	}
 
 	// The engine: the deploy's own `engine:`, else the template's, else the resolved
-	// runtime engine. It maps 1:1 to kind's KIND_EXPERIMENTAL_PROVIDER.
+	// runtime engine. The engine WORD selects the local image store; kind's provider
+	// word is derived from it (they are not the same word: containerd is provisioned
+	// through its nerdctl CLI).
 	rt, err := kit.ResolveRuntime()
 	if err != nil {
 		return nil, fmt.Errorf("deploy %q: resolving runtime: %w", p.Name, err)
@@ -150,7 +154,10 @@ func invokeKindclusterPreresolve(ctx context.Context, req *pb.InvokeRequest) (*p
 	} else if kc.Engine != "" {
 		engine = string(kc.Engine)
 	}
-	provider := container.EngineBinary(engine)
+	provider, err := kindProviderForEngine(engine)
+	if err != nil {
+		return nil, fmt.Errorf("deploy %q: %w", p.Name, err)
+	}
 
 	nodeImage := kindDefaultNodeImage
 	if kc.NodeImage != "" {
@@ -198,8 +205,10 @@ func invokeKindclusterPreresolve(ctx context.Context, req *pb.InvokeRequest) (*p
 		// Resolve the workload image against the SAME engine the cluster runs on
 		// (not rt.RunEngine) — an operator overriding `engine:` must have its image
 		// resolved from and loaded to the one engine, or a false "not present
-		// locally" / wrong-engine load results.
-		imageRef, capsJSON, rerr := resolveWorkloadImage(node, p.Name, provider)
+		// locally" / wrong-engine load results. Pass the engine WORD, not the kind
+		// provider word: `nerdctl` is containerd's CLI, not an engine word, and
+		// feeding it to the image resolver would fall back to the default engine.
+		imageRef, capsJSON, rerr := resolveWorkloadImage(node, p.Name, engine)
 		if rerr != nil {
 			return nil, rerr
 		}
@@ -230,6 +239,31 @@ func invokeKindclusterPreresolve(ctx context.Context, req *pb.InvokeRequest) (*p
 		return nil, fmt.Errorf("deploy %q: marshal kindcluster venue: %w", p.Name, err)
 	}
 	return &pb.InvokeReply{ResultJson: out}, nil
+}
+
+// kindProviderForEngine maps a charly engine word to the provider word kind's
+// KIND_EXPERIMENTAL_PROVIDER expects. The mapping is the spec's engine capability
+// data, never a local literal: EngineCapabilityFor(word).Binary is the CLI the word
+// is driven through, and for containerd that is nerdctl — kind has no containerd
+// provider, so the documented edge is KIND_EXPERIMENTAL_PROVIDER=nerdctl.
+//
+// An unsupported word is REFUSED with the closed vocabulary named. The previous
+// spelling delegated to container.EngineBinary, whose contract is "unknown/empty
+// falls back to spec.DefaultContainerEngine (podman)": with the spec#266 vocabulary
+// `engine: containerd` therefore provisioned a podman-backed cluster and reported
+// success. A fallback that hides a wrong answer is an R3 violation; the engine is
+// the deploy's most consequential selector, so an unrecognized word must fail here.
+func kindProviderForEngine(engine string) (string, error) {
+	if !container.IsEngineName(engine) {
+		return "", fmt.Errorf("engine %q is not a supported container engine (supported: %s)",
+			engine, strings.Join(spec.EngineNames, ", "))
+	}
+	c, ok := container.EngineCapabilityFor(engine)
+	if !ok || c.Binary == "" {
+		return "", fmt.Errorf("engine %q has no capability data; cannot map it to kind's provider (supported: %s)",
+			engine, strings.Join(spec.EngineNames, ", "))
+	}
+	return c.Binary, nil
 }
 
 // resolveKindclusterTemplate loads the project plugin-side and returns the decoded
@@ -516,15 +550,19 @@ func kindLoadImage(provider, cluster, imageRef string) error {
 }
 
 // kindSaveImageArchive saves imageRef from the engine's local storage into dest as a
-// docker-archive tar. `podman save -o <dest>` emits `manifest.json` — the format a kind
-// node's `ctr images import` accepts. It is deliberately NOT `podman save -o -`: `-` is
-// not stdout on the podman versions charly supports (measured on podman 6.1.2: it
-// writes a FILE named `-` and leaves stdout EMPTY), so the load saw an empty archive
-// and failed with `ctr: unrecognized image format`. Extracted so a live-or-skip test
-// drives THIS path (TestKindSaveImageArchive) — reintroducing `-o -` leaves `dest`
-// empty and fails the test.
+// docker-archive tar. The command is the kind PROVIDER word itself: kind's provider
+// vocabulary (docker/podman/nerdctl) names the CLI it drives, and it is NOT
+// necessarily an engine WORD — nerdctl is containerd's CLI. Routing this back through
+// container.EngineBinary would read `nerdctl` as an unknown engine word and save from
+// the default podman store instead. `podman save -o <dest>` emits `manifest.json` —
+// the format a kind node's `ctr images import` accepts. It is deliberately NOT
+// `podman save -o -`: `-` is not stdout on the podman versions charly supports
+// (measured on podman 6.1.2: it writes a FILE named `-` and leaves stdout EMPTY), so
+// the load saw an empty archive and failed with `ctr: unrecognized image format`.
+// Extracted so a live-or-skip test drives THIS path (TestKindSaveImageArchive) —
+// reintroducing `-o -` leaves `dest` empty and fails the test.
 func kindSaveImageArchive(provider, imageRef, dest string) error {
-	save := exec.Command(container.EngineBinary(provider), "save", "-o", dest, imageRef)
+	save := exec.Command(provider, "save", "-o", dest, imageRef)
 	if out, err := save.CombinedOutput(); err != nil {
 		return fmt.Errorf("save image %q: %w\n%s", imageRef, err, strings.TrimSpace(string(out)))
 	}
@@ -535,7 +573,9 @@ func kindSaveImageArchive(provider, imageRef, dest string) error {
 // the image, via the engine's exec. Best-effort: a probe failure means "load it".
 func kindNodeHasImage(provider, cluster, imageRef string) bool {
 	node := cluster + "-control-plane"
-	cmd := exec.Command(container.EngineBinary(provider), "exec", node, "crictl", "images")
+	// Same as kindSaveImageArchive: the kind provider word is the engine CLI it
+	// drives (nerdctl for containerd), so it is invoked directly.
+	cmd := exec.Command(provider, "exec", node, "crictl", "images")
 	out, err := cmd.Output()
 	if err != nil {
 		return false
