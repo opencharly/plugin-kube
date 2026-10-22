@@ -9,10 +9,62 @@ package kube
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/opencharly/spec/spec"
 )
+
+// TestKindProviderForEngine_MapsTheCapabilityData pins the documented kind edge:
+// charly's engine WORD is containerd, kind has no containerd provider, and the
+// capability data routes the word through its CLI (nerdctl). podman/docker are
+// identity mappings. The mapping must come from spec.EngineBinaries, not a local
+// literal, so this asserts the spec-derived answer.
+func TestKindProviderForEngine_MapsTheCapabilityData(t *testing.T) {
+	cases := map[string]string{
+		"podman":     "podman",
+		"docker":     "docker",
+		"containerd": "nerdctl", // the ENGINE word is containerd; nerdctl is its CLI
+	}
+	for engine, want := range cases {
+		got, err := kindProviderForEngine(engine)
+		if err != nil {
+			t.Errorf("kindProviderForEngine(%q): %v", engine, err)
+			continue
+		}
+		if got != want {
+			t.Errorf("kindProviderForEngine(%q) = %q, want %q", engine, got, want)
+		}
+	}
+}
+
+// TestKindProviderForEngine_RejectsUnsupportedWord is the R3/R7 arm for the silent
+// fallback: container.EngineBinary resolves an unknown/empty word to
+// spec.DefaultContainerEngine (podman), so the pre-change path provisioned a
+// podman-backed cluster for `engine: containerd` under the old vocabulary — and
+// would do the same for any typo. kindProviderForEngine must return an ERROR and
+// name the supported set, never a provider.
+//
+// `nerdctl` is included deliberately: it is the DELETED engine word (spec#266), so
+// it is exactly the word a deploy might still carry, and it must not silently run
+// podman. This test fails against the pre-change resolution (which returned
+// "podman", nil for every one of these).
+func TestKindProviderForEngine_RejectsUnsupportedWord(t *testing.T) {
+	for _, word := range []string{"bogus", "nerdctl", "Podman", ""} {
+		provider, err := kindProviderForEngine(word)
+		if err == nil {
+			t.Fatalf("engine %q must be rejected, got provider %q (the silent podman fallback)", word, provider)
+		}
+		if provider != "" {
+			t.Errorf("engine %q must not yield a provider on error, got %q", word, provider)
+		}
+		for _, supported := range spec.EngineNames {
+			if !strings.Contains(err.Error(), supported) {
+				t.Errorf("engine %q error must name the supported word %q: %v", word, supported, err)
+			}
+		}
+	}
+}
 
 // TestKindClusterConfig_JSONKeysMatchEgress asserts the rendered config carries the
 // JSON keys the egress gate sees (apiVersion/nodes/role) — NOT the Go field names.
