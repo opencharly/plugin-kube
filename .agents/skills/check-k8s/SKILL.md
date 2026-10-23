@@ -26,7 +26,8 @@ The cluster-probe verb is spelled `kube`; the deploy KIND is spelled
 
 The **local-cluster sibling** is `kindcluster` (`kind: kindcluster`, a
 `kindcluster:` entity): kind provisions the cluster as node containers on the
-operator's own engine (docker / rootless podman / rootless nerdctl) instead of
+operator's own engine (docker / rootless podman / rootless containerd, where
+containerd is driven through its nerdctl CLI) instead of
 a VM. It is the SAME `kube:` probe surface — a `kindcluster:` deploy writes a
 `kind-<cluster>` kubeconfig context, which a `kube:` step addresses with
 `kube_context:`. See `/charly-kubernetes:kind`.
