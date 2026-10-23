@@ -10,7 +10,11 @@ scanned.
 Canonical files:
 
 - `candy/plugin-kube/charly.yml` — the `plugin-kube:` candy entity (`plugin:`
-  block, `plan:` check).
+  block, `plan:` check) and the `check-k8s-skill:` / `kubernetes-skill:`
+  routing nodes.
+- `.agents/skills/<name>/SKILL.md` — the prose for those two skills, at the repo
+  root (the Agent-Skills standard tree the marketplace generator and the
+  `ai.opencharly.skill` label both read).
 - `candy/plugin-kube/` — the Go source: `plugin.go`, `provider.go`, `cluster.go`,
   `deploy.go`, `materialize.go`, `preresolve.go`, `merge.go`, `kindcluster.go`,
   `k3s_post.go`, `methods.go`, `schema/kube.cue`, `params/cue_types_gen.go`,
