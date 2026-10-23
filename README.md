@@ -61,16 +61,18 @@ Compose the plugin candy in a box or check bed's `candy:` list:
   `cluster.go`, `deploy.go`, `materialize.go`, `preresolve.go`, `merge.go`,
   `kindcluster.go`, `k3s_post.go`, `methods.go`, `schema/kube.cue`,
   `params/cue_types_gen.go`, `cmd/serve/main.go`.
-- `candy/plugin-kube/charly.yml` — the `plugin-kube:` candy entity.
+- `candy/plugin-kube/charly.yml` — the `plugin-kube:` candy entity and the
+  `check-k8s-skill:` / `kubernetes-skill:` routing nodes it owns.
+- `.agents/skills/<name>/SKILL.md` — the prose for those two, one directory per
+  skill at the repo root.
 - `charly.yml` — the root project manifest (`discover: candy`).
 - `.github/workflows/tag-on-merge.yml` — CalVer tag + `CHANGELOG/` on merge.
 
 ## Related
 
-- Owning skill: `/charly-kubernetes:kubernetes` — the Kubernetes deploy surface,
-  cluster profiles, and Kustomize manifest generation. This candy carries no
-  `skill:` entity of its own; the gap is tracked in
-  [opencharly/opencharly#291](https://github.com/opencharly/opencharly/issues/291).
-- `/charly-kubernetes:check-k8s` — the `kube:` check verb reference.
+- Owning skills: `/charly-kubernetes:kubernetes` — the Kubernetes deploy surface,
+  cluster profiles, and Kustomize manifest generation — and
+  `/charly-kubernetes:check-k8s` — the `kube:` check verb reference. Both are
+  projected from this candy's own `skill:` entities.
 - `/charly-internals:plugin` — the plugin/provider model.
 - [`opencharly/charly`](https://github.com/opencharly/charly) — the charly CLI.

@@ -80,3 +80,28 @@ plugin-kube:
                 - contains: Ready
               context:
                 - deploy
+
+# ---------------------------------------------------------------------------
+# The verb/schema skills this repo's own candy owns — routing only.
+#
+# Each node carries `name`/`family`/`owner` (plus `triggers:` where the skill
+# generates DISPATCHER.md rows). The prose is the skill FILE at
+# `<repo root>/.agents/skills/<name>/SKILL.md`, never an inline `description:`
+# or `content:` — an inline body that disagrees with its file is a hard error
+# in the marketplace generator. `family:` is the marketplace family the skill
+# was authored under, kept so every existing `/charly-<family>:<name>` address
+# still resolves; `owner:` names the candy whose command/kind surface the
+# skill documents. The comment block ends here.
+# ---------------------------------------------------------------------------
+check-k8s-skill:
+  skill:
+    name: check-k8s
+    family: kubernetes
+    owner: plugin-kube
+    triggers:
+      - "the `kube:` check verb / Kubernetes cluster probing from a candy/box plan (out-of-process plugin; nodes, pods, ingress, wait-ready, storageclass, addons, apply/delete, raw resource GETs)"
+kubernetes-skill:
+  skill:
+    name: kubernetes
+    family: kubernetes
+    owner: plugin-kube
