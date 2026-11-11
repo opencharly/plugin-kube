@@ -37,6 +37,26 @@
 
 // #KubeInput is the `kube` verb's plugin_input: the method name plus its
 // method-exclusive modifiers.
+// S3 vocabulary table — the method words are stated ONCE, keyed by the word, and the union is
+// DERIVED from the table rather than written out alternative by alternative (DESIGN.md §10.1
+// S3; the `union` rule of scripts/design-dpat.sh refuses the spelled-out form). Adding a
+// method is one row here, and nothing else in this file changes.
+_kubeMethod: {
+	"nodes": {}
+	"wait-nodes": {}
+	"pods": {}
+	"wait-ready": {}
+	"ingress": {}
+	"ingressclass": {}
+	"storageclass": {}
+	"service": {}
+	"lb-external-ip": {}
+	"addons": {}
+	"raw": {}
+	"k3s-post-provision": {}
+}
+_kubeMethodWord: [for w, _ in _kubeMethod {w}]
+
 #KubeInput: {
 	// method — the kube method name (the former core #KubeMethod enum plus the
 	// internal k3s-post-provision the host synthesizes; the verb's PRIMARY input
@@ -49,7 +69,7 @@
 	// DELETED (opencharly/plugin-kube#32), and `manifest` — the field that existed only
 	// to carry their YAML — went with them: a state change is a field (§14.4) or a
 	// `run:` step (D-VERB-5), never a probe.
-	method: ("nodes" | "wait-nodes" | "pods" | "wait-ready" | "ingress" | "ingressclass" | "storageclass" | "service" | "lb-external-ip" | "addons" | "raw" | "k3s-post-provision") @go(Method,type=string)
+	method: or(_kubeMethodWord) @go(Method,type=string)
 	// name / namespace / label — resource identity + selector.
 	name?:      string
 	namespace?: string
