@@ -18,7 +18,7 @@ require (
 )
 
 require (
-	cuelang.org/go v0.16.1 // indirect
+	cuelang.org/go v0.16.1
 	github.com/cockroachdb/apd/v3 v3.2.1 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/emicklei/proto v1.14.3 // indirect

@@ -4,10 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"io"
-	"os"
 	"sort"
 	"strings"
 	"time"
@@ -16,7 +13,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	yamlutil "k8s.io/apimachinery/pkg/util/yaml"
 	"k8s.io/client-go/dynamic"
 
 	"github.com/opencharly/plugin-kube/candy/plugin-kube/params"
@@ -24,13 +20,21 @@ import (
 	"github.com/opencharly/spec/spec"
 )
 
-// methods.go is the kube method dispatcher: the 13-method probe surface moved
+// methods.go is the kube method dispatcher: the 11-method OBSERVATION surface moved
 // from charly core, refactored from Kong Run() methods that PRINTED to
 // stdout into functions that RETURN the captured output string (so provider.go
 // can feed it through the shared sdk matcher pipeline — a host-side
 // matcher step does not run for an out-of-process verb). The line-oriented output
 // tokens + timeouts are unchanged, so a bed authored against the in-tree verb
 // passes unchanged.
+//
+// EVERY method here OBSERVES (DESIGN.md §23 D-VERB-1). The two MUTATION methods that
+// shipped with the moved surface — `apply` (dynamic Create, then Update on
+// AlreadyExists) and `delete` (dynamic Delete) — are DELETED (opencharly/plugin-kube#32):
+// a verb that writes objects makes a `check:` step a second, unchecked deployment
+// pathway beside this plugin's own deploy lowering, and the design puts every state
+// change in a field (§14.4) or a `run:` step (D-VERB-5). Their input field `manifest`,
+// their YAML reader and their kind→resource table died with them.
 
 // requiredModifiers mirrors the in-tree kubeMethods required-field specs (and the
 // Kong `required:""` tags on the Kubernetes*Cmd structs). The host's validate-time +
@@ -41,8 +45,6 @@ import (
 var requiredModifiers = map[string][]string{
 	"wait-ready":     {"kube_kind", "name"},
 	"lb-external-ip": {"namespace", "name"},
-	"apply":          {"manifest"},
-	"delete":         {"manifest"},
 	"raw":            {"kube_resource"},
 }
 
@@ -53,7 +55,7 @@ var requiredModifiers = map[string][]string{
 // error is the verb FAILING (the in-tree CLI Run() returning an error → exit 1);
 // provider.go maps it through the exit_status / stderr matchers.
 //
-//nolint:gocyclo // a flat method switch over the 13-method allowlist; splitting would scatter the contract.
+//nolint:gocyclo // a flat method switch over the 11-method observation allowlist; splitting would scatter the contract.
 func dispatch(ctx context.Context, conn *clusterConn, op *spec.Op, in *params.KubeInput) (string, error) {
 	method := in.Method
 	if err := sdk.RequireModifiers(method, op, requiredModifiers); err != nil {
@@ -86,10 +88,6 @@ func dispatch(ctx context.Context, conn *clusterConn, op *spec.Op, in *params.Ku
 		return runLbExternalIP(ctx, conn, op, in)
 	case "addons":
 		return runAddons(ctx, conn, op, in)
-	case "apply":
-		return runApply(ctx, conn, in)
-	case "delete":
-		return runDelete(ctx, conn, in)
 	case "raw":
 		return runRaw(ctx, conn, in)
 	}
@@ -482,91 +480,6 @@ func waitWorkloadReady(ctx context.Context, client dynamic.Interface, gvr schema
 }
 
 // ---------------------------------------------------------------------------
-// apply
-// ---------------------------------------------------------------------------
-
-func runApply(ctx context.Context, conn *clusterConn, in *params.KubeInput) (string, error) {
-	client, err := conn.dynamicClient()
-	if err != nil {
-		return "", err
-	}
-	docs, err := readYamlDocs(in.Manifest)
-	if err != nil {
-		return "", err
-	}
-	var b strings.Builder
-	for _, u := range docs {
-		ns := u.GetNamespace()
-		if ns == "" && in.Namespace != "" {
-			u.SetNamespace(in.Namespace)
-			ns = in.Namespace
-		}
-		gvr, err := gvrForObject(u)
-		if err != nil {
-			return "", err
-		}
-		var iface dynamic.ResourceInterface = client.Resource(gvr)
-		if ns != "" {
-			iface = client.Resource(gvr).Namespace(ns)
-		}
-		_, err = iface.Create(ctx, u, metav1.CreateOptions{})
-		if apierrors.IsAlreadyExists(err) {
-			existing, gerr := iface.Get(ctx, u.GetName(), metav1.GetOptions{})
-			if gerr != nil {
-				return "", fmt.Errorf("get existing %s/%s: %w", ns, u.GetName(), gerr)
-			}
-			u.SetResourceVersion(existing.GetResourceVersion())
-			_, err = iface.Update(ctx, u, metav1.UpdateOptions{})
-		}
-		if err != nil {
-			return "", fmt.Errorf("apply %s/%s: %w", ns, u.GetName(), err)
-		}
-		fmt.Fprintf(&b, "applied %s %s/%s\n", u.GetKind(), ns, u.GetName())
-	}
-	return b.String(), nil
-}
-
-// ---------------------------------------------------------------------------
-// delete
-// ---------------------------------------------------------------------------
-
-func runDelete(ctx context.Context, conn *clusterConn, in *params.KubeInput) (string, error) {
-	client, err := conn.dynamicClient()
-	if err != nil {
-		return "", err
-	}
-	docs, err := readYamlDocs(in.Manifest)
-	if err != nil {
-		return "", err
-	}
-	var b strings.Builder
-	for _, u := range docs {
-		ns := u.GetNamespace()
-		if ns == "" && in.Namespace != "" {
-			ns = in.Namespace
-		}
-		gvr, err := gvrForObject(u)
-		if err != nil {
-			return "", err
-		}
-		var iface dynamic.ResourceInterface = client.Resource(gvr)
-		if ns != "" {
-			iface = client.Resource(gvr).Namespace(ns)
-		}
-		err = iface.Delete(ctx, u.GetName(), metav1.DeleteOptions{})
-		if apierrors.IsNotFound(err) {
-			fmt.Fprintf(&b, "skip %s %s/%s (not found)\n", u.GetKind(), ns, u.GetName())
-			continue
-		}
-		if err != nil {
-			return "", fmt.Errorf("delete %s/%s: %w", ns, u.GetName(), err)
-		}
-		fmt.Fprintf(&b, "deleted %s %s/%s\n", u.GetKind(), ns, u.GetName())
-	}
-	return b.String(), nil
-}
-
-// ---------------------------------------------------------------------------
 // raw
 // ---------------------------------------------------------------------------
 
@@ -628,47 +541,4 @@ func marshalJSON(v any) (string, error) {
 		return "", err
 	}
 	return buf.String(), nil
-}
-
-// ---------------------------------------------------------------------------
-// YAML ingestion helpers (shared by apply/delete).
-// ---------------------------------------------------------------------------
-
-// readYamlDocs reads a YAML file that may contain multiple documents separated
-// by `---` and decodes each into an Unstructured.
-func readYamlDocs(path string) ([]*unstructured.Unstructured, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("reading %s: %w", path, err)
-	}
-	var out []*unstructured.Unstructured
-	decoder := yamlutil.NewYAMLOrJSONDecoder(strings.NewReader(string(data)), 4096)
-	for {
-		raw := map[string]any{}
-		if err := decoder.Decode(&raw); err != nil {
-			if errors.Is(err, io.EOF) {
-				break
-			}
-			return nil, fmt.Errorf("decoding %s: %w", path, err)
-		}
-		if len(raw) == 0 {
-			continue
-		}
-		out = append(out, &unstructured.Unstructured{Object: raw})
-	}
-	return out, nil
-}
-
-// gvrForObject maps an Unstructured to its GroupVersionResource via the static
-// kind→GVR table (avoids a discovery RESTMapper — binary-size cost).
-func gvrForObject(u *unstructured.Unstructured) (schema.GroupVersionResource, error) {
-	gv, err := schema.ParseGroupVersion(u.GetAPIVersion())
-	if err != nil {
-		return schema.GroupVersionResource{}, fmt.Errorf("parsing apiVersion %q: %w", u.GetAPIVersion(), err)
-	}
-	resource, ok := kindToPluralResource(u.GetKind())
-	if !ok {
-		return schema.GroupVersionResource{}, fmt.Errorf("unsupported kind %q for apply/delete (add mapping in kindToPluralResource)", u.GetKind())
-	}
-	return schema.GroupVersionResource{Group: gv.Group, Version: gv.Version, Resource: resource}, nil
 }

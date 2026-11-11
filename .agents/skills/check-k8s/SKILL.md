@@ -1,9 +1,9 @@
 ---
 name: check-k8s
 description: Kubernetes cluster-probe declarative check verb — the `kube:` check verb
-  (nodes, pods, ingress, storage class, addon health, apply/delete, arbitrary resource
+  (nodes, pods, ingress, storage class, addon health, arbitrary resource
   GETs) served out-of-process by candy/plugin-kube (vendored client-go; no external
-  kubectl).
+  kubectl). Every method OBSERVES (D-VERB-1) — no method writes to the cluster.
 ---
 
 MUST be invoked before any work involving: the declarative `kube:` check
@@ -51,12 +51,16 @@ A `kube:` step is a `check:` step.
 | `service` | `namespace:` | `<ns>/<name> <type> <clusterIP> <externalIP>` |
 | `lb-external-ip` | `namespace:`, `name:` (svc), `timeout:` (60s) | print the assigned external IP |
 | `addons` | `namespace:` (kube-system), `timeout:` (180s) | roll-up: Traefik + ServiceLB + local-path all Ready |
-| `apply` | `manifest:` (path), `namespace:` | apply multi-doc YAML via the dynamic client |
-| `delete` | `manifest:` (path), `namespace:` | delete the resources named in the manifest |
 | `raw` | `kube_resource:` (plural), `kube_group:`, `kube_version:` (v1), `name:`, `namespace:` | GET an arbitrary resource as JSON |
 
+There is no `apply` and no `delete` method: a verb observes and never changes state
+(DESIGN.md §23 D-VERB-1). To change a cluster, the state change belongs to a deploy
+(the `deploy:kubernetes` lowering, `kubectl apply -k` on the egress-validated Kustomize
+tree) or to a `run:` step — never to a `check:` step. Both methods and the `manifest:`
+field that carried their YAML were removed in opencharly/plugin-kube#32.
+
 The full kube-map field set: `name:`, `namespace:`, `label:`, `cluster:`,
-`kubeconfig:`, `kube_context:`, `kube_kind:`, `kube_count:`, `manifest:`,
+`kubeconfig:`, `kube_context:`, `kube_kind:`, `kube_count:`,
 `kube_resource:`, `kube_group:`, `kube_version:`, `json:` (all inside the `kube:`
 map). The only shared `#Op` sibling a `kube:` step commonly carries is `timeout:`.
 
@@ -103,7 +107,7 @@ discriminator on a step's `Op`. In the unified node-form the plan IS a `plan:`
 list — each step is an ordered list item under the candy's `plan:` (named by its
 optional `id:`). Every method above maps to a method name; its kube-exclusive
 fields (`name:`, `namespace:`, `cluster:`, `kubeconfig:`, `kube_kind:`,
-`kube_count:`, `manifest:`, `kube_resource:`, `kube_group:`, `kube_version:`) go
+`kube_count:`, `kube_resource:`, `kube_group:`, `kube_version:`) go
 INSIDE the `kube:` map, while `timeout:` stays a sibling. A `kube:` step is a
 `check:` step.
 
@@ -179,14 +183,11 @@ waits until `kube_count:` nodes are Ready.
 
 ## Method notes
 
-- **apply / delete** — limited to the kinds in `kindToPluralResource()`
-  (in the plugin's `cluster.go`). Static table by design; adding a new
-  kind is a one-line addition, avoiding the RESTMapper discovery bloat.
-  Documents without a namespace inherit `namespace:`.
 - **raw** — escape hatch for any resource not covered by the named
   methods. `kube: {method: raw, kube_resource: nodes}` lists nodes;
   `kube: {method: raw, kube_resource: configmaps, namespace: kube-system,
-  name: foo}` prints one ConfigMap as JSON.
+  name: foo}` prints one ConfigMap as JSON. It GETs and LISTs only — the
+  mutation escape hatch is a deploy or a `run:` step, not a probe.
 - **addons** — assumes the stock k3s addon stack (Traefik, ServiceLB,
   local-path-provisioner) in `kube-system`. Explicit `disable:` in a
   k3s-server layer will cause this method to fail — the failure is
@@ -208,9 +209,9 @@ charly's core binary.
     `params_json`).
   - `cluster.go` — builds the `rest.Config` from kubeconfig + context (the
     dynamic client via `k8s.io/client-go/dynamic` + `unstructured` walkers,
-    no typed clientset) and `kindToPluralResource()` for apply/delete.
-  - `methods.go` — the `dispatch()` method router + the 13 method
-    implementations (`runNodes`, `runWaitNodes`, `runApply`, …).
+    no typed clientset) and maps a workload kind to its GVR for `wait-ready`.
+  - `methods.go` — the `dispatch()` method router + the 11 observation-method
+    implementations (`runNodes`, `runWaitNodes`, `runRaw`, …).
   - `merge.go` — `mergeKubeconfig`: the clientcmd merge that folds a retrieved
     k3s kubeconfig into the operator's `~/.kube/config` under a named context
     (so the `k8s.io/client-go/tools/clientcmd` dependency lives here too, not

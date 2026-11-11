@@ -221,39 +221,3 @@ func kindToGVR(kind string) (schema.GroupVersionResource, bool) {
 	}
 	return schema.GroupVersionResource{}, false
 }
-
-// kindToPluralResource maps the Kind field of a manifest document to its
-// pluralized REST resource name. Kept intentionally narrow — the apply / delete
-// surface is meant for smoke-test manifests authored for the k3s verification
-// flow, not production charts.
-func kindToPluralResource(kind string) (string, bool) {
-	switch kind {
-	case "Pod":
-		return "pods", true
-	case "Service":
-		return "services", true
-	case "Deployment":
-		return "deployments", true
-	case "DaemonSet":
-		return "daemonsets", true
-	case "StatefulSet":
-		return "statefulsets", true
-	case "Ingress":
-		return "ingresses", true
-	case "ConfigMap":
-		return "configmaps", true
-	case "Secret":
-		return "secrets", true
-	case "Namespace":
-		return "namespaces", true
-	case "ServiceAccount":
-		return "serviceaccounts", true
-	case "Job":
-		return "jobs", true
-	case "CronJob":
-		return "cronjobs", true
-	case "PersistentVolumeClaim":
-		return "persistentvolumeclaims", true
-	}
-	return "", false
-}
