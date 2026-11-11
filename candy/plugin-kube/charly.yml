@@ -40,9 +40,11 @@ plugin-kube:
             tree, self-loading the project PLUGIN-SIDE (K-wave W3a A3-phase-2 —
             no HostBuild round trip left in this leg), and this plugin applies it.
             Provides the full
-            13-method probe surface
+            11-method OBSERVATION surface
             (nodes/wait-nodes/pods/wait-ready/ingress/ingressclass/storageclass/
-            service/lb-external-ip/addons/apply/delete/raw), the deploy:kubernetes
+            service/lb-external-ip/addons/raw — no method changes state, D-VERB-1;
+            the former apply/delete methods are removed, opencharly/plugin-kube#32),
+            the deploy:kubernetes
             substrate, PLUS the internal k3s-post-provision deploy seam (this
             plugin's own k3s_post.go: the guest-forward kubeconfig rewrite, now
             self-loading the project PLUGIN-SIDE too, then the kubeconfig merge into
@@ -99,7 +101,7 @@ check-k8s-skill:
     family: kubernetes
     owner: plugin-kube
     triggers:
-      - "the `kube:` check verb / Kubernetes cluster probing from a candy/box plan (out-of-process plugin; nodes, pods, ingress, wait-ready, storageclass, addons, apply/delete, raw resource GETs)"
+      - "the `kube:` check verb / Kubernetes cluster probing from a candy/box plan (out-of-process plugin; nodes, pods, ingress, wait-ready, storageclass, addons, raw resource GETs — every method observes, none changes state)"
 kubernetes-skill:
   skill:
     name: kubernetes

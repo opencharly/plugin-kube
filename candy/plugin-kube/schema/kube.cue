@@ -14,7 +14,7 @@
 // Since the schema-compaction cutover the per-verb fields left core #Op: a step's
 // `kube: <method>` sugar desugars to the internal plugin/plugin_input pair, the
 // method name rides the input's `method` key (the former core #KubeMethod enum),
-// and every kube-exclusive modifier (name/namespace/label/cluster/manifest/
+// and every kube-exclusive modifier (name/namespace/label/cluster/
 // kube_kind/kube_context/kubeconfig/kube_count/kube_resource/kube_group/
 // kube_version/json/artifact_key/deploy_name) lives HERE. Only the genuinely SHARED
 // step modifiers (timeout, the exit_status/stdout/stderr matchers, context, …) stay
@@ -41,7 +41,15 @@
 	// method — the kube method name (the former core #KubeMethod enum plus the
 	// internal k3s-post-provision the host synthesizes; the verb's PRIMARY input
 	// field, so `kube: nodes` desugars to {method: "nodes"}).
-	method: ("nodes" | "wait-nodes" | "pods" | "wait-ready" | "ingress" | "ingressclass" | "storageclass" | "service" | "lb-external-ip" | "addons" | "apply" | "delete" | "raw" | "k3s-post-provision") @go(Method,type=string)
+	//
+	// EVERY method OBSERVES (DESIGN.md §23 D-VERB-1: "A verb observes and never
+	// changes state"). The former `apply` and `delete` methods were the exception: they
+	// created, updated and deleted cluster objects, which made a `check:` step a second,
+	// UNCHECKED deployment pathway beside this plugin's own deploy lowering. They are
+	// DELETED (opencharly/plugin-kube#32), and `manifest` — the field that existed only
+	// to carry their YAML — went with them: a state change is a field (§14.4) or a
+	// `run:` step (D-VERB-5), never a probe.
+	method: ("nodes" | "wait-nodes" | "pods" | "wait-ready" | "ingress" | "ingressclass" | "storageclass" | "service" | "lb-external-ip" | "addons" | "raw" | "k3s-post-provision") @go(Method,type=string)
 	// name / namespace / label — resource identity + selector.
 	name?:      string
 	namespace?: string
@@ -50,8 +58,6 @@
 	// concrete kube_context (self-loading the project, K-wave W3a A3-phase-2) and
 	// leaves the authored key in place, so the input def admits both.
 	cluster?: string
-	// manifest — the multi-doc YAML path (apply/delete).
-	manifest?: string
 	// kube_kind / kube_count — wait-ready's workload kind + wait-nodes' Ready count.
 	kube_kind?:  string @go(KubeKind)
 	kube_count?: int    @go(KubeCount,type=int)

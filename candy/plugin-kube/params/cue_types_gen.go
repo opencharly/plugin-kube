@@ -8,6 +8,14 @@ type KubeInput struct {
 	// method — the kube method name (the former core #KubeMethod enum plus the
 	// internal k3s-post-provision the host synthesizes; the verb's PRIMARY input
 	// field, so `kube: nodes` desugars to {method: "nodes"}).
+	//
+	// EVERY method OBSERVES (DESIGN.md §23 D-VERB-1: "A verb observes and never
+	// changes state"). The former `apply` and `delete` methods were the exception: they
+	// created, updated and deleted cluster objects, which made a `check:` step a second,
+	// UNCHECKED deployment pathway beside this plugin's own deploy lowering. They are
+	// DELETED (opencharly/plugin-kube#32), and `manifest` — the field that existed only
+	// to carry their YAML — went with them: a state change is a field (§14.4) or a
+	// `run:` step (D-VERB-5), never a probe.
 	Method string `yaml:"method,omitempty" json:"method"`
 
 	// name / namespace / label — resource identity + selector.
@@ -21,9 +29,6 @@ type KubeInput struct {
 	// concrete kube_context (self-loading the project, K-wave W3a A3-phase-2) and
 	// leaves the authored key in place, so the input def admits both.
 	Cluster string `yaml:"cluster,omitempty" json:"cluster,omitempty"`
-
-	// manifest — the multi-doc YAML path (apply/delete).
-	Manifest string `yaml:"manifest,omitempty" json:"manifest,omitempty"`
 
 	// kube_kind / kube_count — wait-ready's workload kind + wait-nodes' Ready count.
 	KubeKind string `yaml:"kube_kind,omitempty" json:"kube_kind,omitempty"`

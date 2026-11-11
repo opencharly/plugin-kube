@@ -12,7 +12,7 @@ go-plugin gRPC via the charly plugin SDK.
 
 | Capability | Surface |
 |---|---|
-| `verb:kube` | the `kube:` cluster-probe check verb — 13 methods |
+| `verb:kube` | the `kube:` cluster-probe check verb — 11 observation methods |
 | `deploy:kubernetes` | the `target: kubernetes` workload deploy substrate |
 | `deploy:kindcluster` | the local Kubernetes-in-Docker cluster substrate |
 
@@ -23,7 +23,12 @@ An authored `kube: <method>` step (scalar sugar) or
 envelope; the method + every kube-exclusive modifier live in the plugin's own
 `#KubeInput` (`schema/kube.cue`). Methods: `nodes`, `wait-nodes`, `pods`,
 `wait-ready`, `ingress`, `ingressclass`, `storageclass`, `service`,
-`lb-external-ip`, `addons`, `apply`, `delete`, `raw`.
+`lb-external-ip`, `addons`, `raw`.
+
+Every method observes and none changes state (DESIGN.md §23 D-VERB-1): the former
+`apply`/`delete` methods were removed in
+[#32](https://github.com/opencharly/plugin-kube/issues/32) — a cluster change belongs
+to a deploy (`kubectl apply -k` on the egress-validated tree) or a `run:` step.
 
 ```yaml
 - check: the cluster reports at least one Ready node
