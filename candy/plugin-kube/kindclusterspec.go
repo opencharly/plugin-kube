@@ -54,7 +54,6 @@ type kindPortMappingView struct {
 type kubernetesPolicy struct {
 	Box               string                `json:"box"`
 	KubeconfigContext string                `json:"kubeconfig_context,omitempty"`
-	Kubeconfig        string                `json:"kubeconfig,omitempty"`
 	AdmissionPolicy   string                `json:"admission_policy,omitempty"`
 	DefaultNamespace  string                `json:"default_namespace,omitempty"`
 	Storage           kubernetesStorageView `json:"storage,omitempty"`

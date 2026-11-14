@@ -217,3 +217,104 @@ func TestKindclusterAsKubernetes_JSONShape(t *testing.T) {
 		t.Fatalf("projection wire changed:\n got %s\nwant %s", got, want)
 	}
 }
+
+// TestKindclusterSpec_DecodesAuthoredBody is the test the resolver's path needs and did not
+// have: it decodes a REPRESENTATIVE kindcluster body — every field the plugin reads populated —
+// through the same json.Unmarshal the resolver performs, and asserts each value lands on its
+// field. A tag that diverges from the authored schema (nodes/node_image/engine, the policy
+// sub-blocks) drops data silently, so this is what makes "read the body through the plugin's
+// own view" checkable. It then proves the decoded view DRIVES the two consumers: the kind
+// config renderer and the Kustomize projection.
+func TestKindclusterSpec_DecodesAuthoredBody(t *testing.T) {
+	body := []byte(`{
+	  "box": "lab",
+	  "kubeconfig_context": "kind-lab",
+	  "default_namespace": "apps",
+	  "admission_policy": "restricted",
+	  "defaults": {"labels": {"team": "infra"}, "annotations": {"note": "x"}},
+	  "storage": {"class_default": "standard", "class_fast": "fast", "class_cheap": "cheap", "class_encrypted": "enc", "access_mode_default": "ReadWriteOnce"},
+	  "ingress": {"enabled": true, "class": "nginx", "cert_issuer": "letsencrypt", "path_type_default": "Prefix"},
+	  "image_default": {"pull_policy": "Always", "pull_secrets": ["regcred"]},
+	  "pod_default": {"priority_class": "high", "node_selector": {"pool": "ci"}, "tolerations": [{"key": "dedicated", "operator": "Exists"}]},
+	  "engine": "docker",
+	  "node_image": "kindest/node:v1.36.4@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+	  "nodes": [
+	    {"role": "control-plane", "extra_port_mappings": [{"container_port": 30080, "host_port": 30080, "listen_address": "127.0.0.1", "protocol": "TCP"}]},
+	    {"role": "worker", "image": "kindest/node:v1.36.4@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}
+	  ]
+	}`)
+
+	var kc kindclusterSpec
+	if err := json.Unmarshal(body, &kc); err != nil {
+		t.Fatalf("decode kindcluster body: %v", err)
+	}
+
+	// identity + policy sub-blocks
+	if kc.Box != "lab" || kc.KubeconfigContext != "kind-lab" || kc.DefaultNamespace != "apps" || kc.AdmissionPolicy != "restricted" {
+		t.Fatalf("identity fields not decoded: %+v", kc)
+	}
+	if kc.Defaults.Labels["team"] != "infra" || kc.Defaults.Annotations["note"] != "x" {
+		t.Errorf("defaults not decoded: %+v", kc.Defaults)
+	}
+	if kc.Storage.ClassDefault != "standard" || kc.Storage.ClassFast != "fast" || kc.Storage.ClassCheap != "cheap" || kc.Storage.ClassEncrypted != "enc" || kc.Storage.AccessModeDefault != "ReadWriteOnce" {
+		t.Errorf("storage not decoded: %+v", kc.Storage)
+	}
+	if !kc.Ingress.Enabled || kc.Ingress.Class != "nginx" || kc.Ingress.CertIssuer != "letsencrypt" || kc.Ingress.PathTypeDefault != "Prefix" {
+		t.Errorf("ingress not decoded: %+v", kc.Ingress)
+	}
+	if kc.ImageDefault.PullPolicy != "Always" || len(kc.ImageDefault.PullSecrets) != 1 || kc.ImageDefault.PullSecrets[0] != "regcred" {
+		t.Errorf("image_default not decoded: %+v", kc.ImageDefault)
+	}
+	if kc.PodDefault.PriorityClass != "high" || kc.PodDefault.NodeSelector["pool"] != "ci" || len(kc.PodDefault.Tolerations) != 1 {
+		t.Errorf("pod_default not decoded: %+v", kc.PodDefault)
+	}
+
+	// the kind topology — what the renderer reads
+	if kc.Engine != "docker" {
+		t.Errorf("engine = %q, want docker", kc.Engine)
+	}
+	if kc.NodeImage != "kindest/node:v1.36.4@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" {
+		t.Errorf("node_image not decoded: %q", kc.NodeImage)
+	}
+	if len(kc.Nodes) != 2 || kc.Nodes[0].Role != "control-plane" || kc.Nodes[1].Role != "worker" {
+		t.Fatalf("nodes not decoded: %+v", kc.Nodes)
+	}
+	if len(kc.Nodes[0].ExtraPortMappings) != 1 {
+		t.Fatalf("port mappings not decoded: %+v", kc.Nodes[0])
+	}
+	pm := kc.Nodes[0].ExtraPortMappings[0]
+	if pm.ContainerPort != 30080 || pm.HostPort != 30080 || pm.ListenAddress != "127.0.0.1" || pm.Protocol != "TCP" {
+		t.Errorf("port mapping fields wrong: %+v", pm)
+	}
+	if kc.Nodes[1].Image == "" {
+		t.Error("per-node image not decoded")
+	}
+
+	// the decoded view DRIVES the renderer: two nodes, the control-plane's mapping, the
+	// worker's own image, and the control-plane carrying the cluster-level node_image.
+	// The real caller resolves the cluster-level default first (kc.NodeImage when set, else
+	// the pinned fallback); mirror that here so the decoded node_image is the default.
+	clusterImage := kc.NodeImage
+	if clusterImage == "" {
+		clusterImage = kindDefaultNodeImage
+	}
+	cfg := renderKindClusterConfig(&kc, clusterImage)
+	if len(cfg.Nodes) != 2 {
+		t.Fatalf("renderer ignored the decoded topology: %+v", cfg.Nodes)
+	}
+	if len(cfg.Nodes[0].ExtraPortMappings) != 1 || cfg.Nodes[0].ExtraPortMappings[0].HostPort != 30080 {
+		t.Errorf("renderer lost the decoded port mapping: %+v", cfg.Nodes[0])
+	}
+	if cfg.Nodes[1].Image == kc.NodeImage {
+		t.Error("renderer ignored the decoded per-node image override")
+	}
+	if cfg.Nodes[0].Image != kc.NodeImage {
+		t.Errorf("control-plane must carry the decoded node_image, got %q", cfg.Nodes[0].Image)
+	}
+
+	// and it DRIVES the projection: the decoded policy is what the generator sees.
+	kub := kindclusterAsKubernetes(&kc)
+	if kub.KubeconfigContext != "kind-lab" || kub.DefaultNamespace != "apps" || kub.Storage.ClassFast != "fast" || !kub.Ingress.Enabled || kub.Ingress.CertIssuer != "letsencrypt" {
+		t.Errorf("projection lost the decoded policy: %+v", kub)
+	}
+}
