@@ -72,7 +72,7 @@ func TestKindProviderForEngine_RejectsUnsupportedWord(t *testing.T) {
 // yaml-only struct tag yields APIVersion/Nodes and the gate rejects the config as
 // missing apiVersion/nodes (measured live). This test fails on that regression.
 func TestKindClusterConfig_JSONKeysMatchEgress(t *testing.T) {
-	cfg := renderKindClusterConfig(&spec.Kindcluster{Nodes: []spec.KindclusterNode{{Role: "control-plane"}}}, kindDefaultNodeImage)
+	cfg := renderKindClusterConfig(&kindclusterSpec{Nodes: []kindclusterNodeView{{Role: "control-plane"}}}, kindDefaultNodeImage)
 	raw, err := json.Marshal(cfg)
 	if err != nil {
 		t.Fatal(err)
@@ -106,7 +106,7 @@ func keysOf(m map[string]any) []string {
 }
 
 func TestRenderKindClusterConfig_DefaultSingleControlPlane(t *testing.T) {
-	kc := &spec.Kindcluster{}
+	kc := &kindclusterSpec{}
 	cfg := renderKindClusterConfig(kc, kindDefaultNodeImage)
 	if cfg.Kind != "Cluster" || cfg.APIVersion != "kind.x-k8s.io/v1alpha4" {
 		t.Fatalf("unexpected envelope: %+v", cfg)
@@ -120,9 +120,9 @@ func TestRenderKindClusterConfig_DefaultSingleControlPlane(t *testing.T) {
 }
 
 func TestRenderKindClusterConfig_ExplicitTopologyAndPortMappings(t *testing.T) {
-	kc := &spec.Kindcluster{
-		Nodes: []spec.KindclusterNode{
-			{Role: "control-plane", ExtraPortMappings: []spec.KindclusterPortMapping{
+	kc := &kindclusterSpec{
+		Nodes: []kindclusterNodeView{
+			{Role: "control-plane", ExtraPortMappings: []kindPortMappingView{
 				{ContainerPort: 30080, HostPort: 30080, ListenAddress: "127.0.0.1", Protocol: "TCP"},
 			}},
 			{Role: "worker"},
@@ -156,13 +156,12 @@ func TestKindClusterName_Sanitized(t *testing.T) {
 }
 
 func TestKindclusterAsKubernetes_ProjectsPolicy(t *testing.T) {
-	kc := &spec.Kindcluster{
-		Box:               "",
+	kc := &kindclusterSpec{
 		KubeconfigContext: "kind-lab",
 		DefaultNamespace:  "apps",
 		AdmissionPolicy:   "restricted",
-		Storage:           &spec.KubernetesStorage{ClassDefault: "standard"},
-		Ingress:           &spec.KubernetesIngressDefaults{Enabled: true, Class: "nginx"},
+		Storage:           kubernetesStorageView{ClassDefault: "standard"},
+		Ingress:           kubernetesIngressView{Enabled: true, Class: "nginx"},
 	}
 	kub := kindclusterAsKubernetes(kc)
 	if kub.KubeconfigContext != "kind-lab" || kub.DefaultNamespace != "apps" || kub.AdmissionPolicy != "restricted" {
@@ -193,5 +192,28 @@ func TestFirstContainerImage_WalksAllWorkloadShapes(t *testing.T) {
 	}
 	if got := firstContainerImage(map[string]any{}); got != "" {
 		t.Errorf("empty doc must yield empty image, got %q", got)
+	}
+}
+
+// TestKindclusterAsKubernetes_JSONShape pins the projection's WIRE, byte for byte. The bytes
+// below were captured from the implementation this change replaces (the contract's
+// spec.Kubernetes marshalled with the same input), so this test fails if the plugin's own view
+// ever emits a different request body to the Kustomize generator — the one property that
+// makes "the body moved, the behaviour did not" checkable rather than asserted.
+func TestKindclusterAsKubernetes_JSONShape(t *testing.T) {
+	kc := &kindclusterSpec{
+		KubeconfigContext: "kind-lab",
+		DefaultNamespace:  "apps",
+		AdmissionPolicy:   "restricted",
+		Storage:           kubernetesStorageView{ClassDefault: "standard"},
+		Ingress:           kubernetesIngressView{Enabled: true, Class: "nginx"},
+	}
+	got, err := json.Marshal(kindclusterAsKubernetes(kc))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `{"box":"","kubeconfig_context":"kind-lab","admission_policy":"restricted","default_namespace":"apps","storage":{"class_default":"standard"},"ingress":{"enabled":true,"class":"nginx"},"image_default":{},"pod_default":{},"kubevirt":{},"defaults":{}}`
+	if string(got) != want {
+		t.Fatalf("projection wire changed:\n got %s\nwant %s", got, want)
 	}
 }

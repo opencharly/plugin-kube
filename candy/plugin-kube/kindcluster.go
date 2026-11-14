@@ -134,7 +134,8 @@ func invokeKindclusterPreresolve(ctx context.Context, req *pb.InvokeRequest) (*p
 	// Resolve the kindcluster template body PLUGIN-SIDE using only exported SDK +
 	// spec API (the generic kind-blind ProjectTemplates lookup), so no per-kind sdk
 	// resolver leg is needed (R3): the template body is the same opaque RawBody the
-	// kernel folds, decoded here into the concrete spec.Kindcluster.
+	// kernel folds, decoded here into this plugin's own view (kindclusterspec.go) — the
+	// authored type moved to the serving plugin with opencharly/spec#304 unit 5.
 	kc, err := resolveKindclusterTemplate(ctx, exec, p.Dir, clusterName)
 	if err != nil {
 		return nil, fmt.Errorf("deploy %q: resolving kindcluster %q: %w", p.Name, clusterName, err)
@@ -212,9 +213,10 @@ func invokeKindclusterPreresolve(ctx context.Context, req *pb.InvokeRequest) (*p
 		if rerr != nil {
 			return nil, rerr
 		}
-		// Project the kindcluster cluster-policy fields onto a #Kubernetes body: the
+		// Project the kindcluster cluster-policy fields onto the kubernetes policy body: the
 		// Kustomize generator consumes the SAME policy surface (R3), so the kindcluster
-		// cluster reuses the kubernetes generator verbatim.
+		// cluster reuses the kubernetes generator verbatim — and the body travels as the
+		// request's opaque ClusterJSON (no contract type in the path).
 		kub := kindclusterAsKubernetes(kc)
 		kubJSON, merr := json.Marshal(kub)
 		if merr != nil {
@@ -270,7 +272,7 @@ func kindProviderForEngine(engine string) (string, error) {
 // kindcluster template named name. Uses the generic exported API (LoadUnifiedViaExecutor
 // + ProjectTemplates().ByKind) — the SAME kind-blind lookup
 // loaderkit.resolveKindTemplateBodyViaExecutor performs, without a per-kind sdk leg.
-func resolveKindclusterTemplate(ctx context.Context, exec *sdk.Executor, dir, name string) (*spec.Kindcluster, error) {
+func resolveKindclusterTemplate(ctx context.Context, exec *sdk.Executor, dir, name string) (*kindclusterSpec, error) {
 	uf, ok, err := loaderkit.LoadUnifiedViaExecutor(ctx, exec, dir)
 	if err != nil {
 		return nil, err
@@ -286,46 +288,17 @@ func resolveKindclusterTemplate(ctx context.Context, exec *sdk.Executor, dir, na
 	if len(body) == 0 {
 		return nil, fmt.Errorf("kind:kindcluster entity %q not found", name)
 	}
-	var kc spec.Kindcluster
+	var kc kindclusterSpec
 	if err := json.Unmarshal(body, &kc); err != nil {
 		return nil, fmt.Errorf("decode kind:kindcluster entity %q: %w", name, err)
 	}
 	return &kc, nil
 }
 
-// kindclusterAsKubernetes projects a kindcluster cluster template onto the #Kubernetes
-// shape the Kustomize generator consumes — one policy surface for both cluster kinds
-// (R3). Only the shared policy + identity fields carry; kindcluster's kind-specific
-// topology (nodes/node_image/engine) is not part of the workload generation. The
-// kindcluster schema models the policy sub-blocks as optional (pointers); the
-// #Kubernetes shape models them as values, so each is dereferenced here.
-func kindclusterAsKubernetes(kc *spec.Kindcluster) spec.Kubernetes {
-	kub := spec.Kubernetes{
-		Box:               kc.Box,
-		KubeconfigContext: kc.KubeconfigContext,
-		DefaultNamespace:  kc.DefaultNamespace,
-		AdmissionPolicy:   kc.AdmissionPolicy,
-		Defaults:          kc.Defaults,
-	}
-	if kc.Storage != nil {
-		kub.Storage = *kc.Storage
-	}
-	if kc.Ingress != nil {
-		kub.Ingress = *kc.Ingress
-	}
-	if kc.ImageDefault != nil {
-		kub.ImageDefault = *kc.ImageDefault
-	}
-	if kc.PodDefault != nil {
-		kub.PodDefault = *kc.PodDefault
-	}
-	return kub
-}
-
 // renderKindClusterConfig renders the kind Cluster config from the template topology.
 // A single control-plane node is the kind default; explicit nodes (roles + per-node
 // images/port mappings) override it.
-func renderKindClusterConfig(kc *spec.Kindcluster, defaultImage string) kindClusterConfig {
+func renderKindClusterConfig(kc *kindclusterSpec, defaultImage string) kindClusterConfig {
 	cfg := kindClusterConfig{Kind: "Cluster", APIVersion: "kind.x-k8s.io/v1alpha4"}
 	if len(kc.Nodes) == 0 {
 		cfg.Nodes = []kindConfigNode{{Role: "control-plane", Image: defaultImage}}
